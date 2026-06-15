@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -243,13 +244,10 @@ fun IAScreen(navController: NavController) {
                 .padding(bottom = 90.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = "Predicción con IA",
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                color = uiColors.textPrimary,
-                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
-            )
+            IATopBar(temaOscuro = settings.temaOscuro)
+
+            Spacer(modifier = Modifier.height(16.dp))
+
 
             if (!settings.prediccionIAActiva) {
                 IAInfoCard(
@@ -292,7 +290,7 @@ fun IAScreen(navController: NavController) {
 
                 IADataLine(
                     label = "Pasos finales",
-                    value = if (steps.isNotBlank()) steps else "No disponible",
+                    value = steps.ifBlank { "No disponible" },
                     uiColors = uiColors
                 )
 
@@ -507,10 +505,11 @@ fun IAResultadoCard(
     recomendacion: String,
     uiColors: AppUiColors
 ) {
+    val isDark = uiColors.background == Color(0xFF0A1520)
     val cardColor = when (resultadoTipo) {
-        0 -> uiColors.warning.copy(alpha = if (uiColors.background == Color(0xFF101114)) 0.18f else 0.28f)
-        1 -> uiColors.success.copy(alpha = if (uiColors.background == Color(0xFF101114)) 0.18f else 0.28f)
-        2 -> uiColors.dangerButton.copy(alpha = if (uiColors.background == Color(0xFF101114)) 0.18f else 0.25f)
+        0 -> uiColors.warning.copy(alpha = if (isDark) 0.18f else 0.28f)
+        1 -> uiColors.success.copy(alpha = if (isDark) 0.18f else 0.28f)
+        2 -> uiColors.dangerButton.copy(alpha = if (isDark) 0.18f else 0.25f)
         else -> uiColors.card
     }
 
@@ -612,10 +611,10 @@ fun IAReadonlyField(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
         readOnly = true,
-        singleLine = true
+        singleLine = true,
+        colors = alyraTextFieldColors(uiColors)
     )
 }
-
 @Composable
 fun IADataLine(
     label: String,
@@ -690,3 +689,44 @@ fun iaBottomItemColors(
     unselectedIconColor = uiColors.bottomUnselected,
     unselectedTextColor = uiColors.bottomUnselected
 )
+@Composable
+fun IATopBar(temaOscuro: Boolean) {
+    val uiColors = appUiColors(temaOscuro)
+    val gradient = androidx.compose.ui.graphics.Brush.horizontalGradient(
+        listOf(uiColors.topBarStart, uiColors.topBarEnd)
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(60.dp)
+            .background(gradient)
+            .padding(horizontal = 20.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.SmartToy,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(26.dp)
+            )
+
+            Text(
+                text = "Predicción IA",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.sp
+            )
+
+            Spacer(
+                modifier = Modifier.size(26.dp)
+            )
+        }
+    }
+}

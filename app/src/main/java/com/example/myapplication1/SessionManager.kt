@@ -17,7 +17,6 @@ class SessionManager(context: Context) {
             .putString("name", name)
             .putString("email", email)
             .putString("token", token)
-
             .putString("bio_id", id)
             .putString("bio_name", name)
             .putString("bio_email", email)
@@ -27,38 +26,40 @@ class SessionManager(context: Context) {
     }
 
     fun getUserId(): String? = prefs.getString("id", null)
-
     fun getName(): String? = prefs.getString("name", null)
-
     fun getEmail(): String? = prefs.getString("email", null)
-
     fun getToken(): String? = prefs.getString("token", null)
-
     fun getBiometricEmail(): String? = prefs.getString("bio_email", null)
-
     fun getBiometricName(): String? = prefs.getString("bio_name", null)
 
-    fun hasActiveSession(): Boolean {
-        return !getToken().isNullOrBlank() &&
-                !getUserId().isNullOrBlank()
+    fun saveProfilePhotoUri(uri: String) {
+        prefs.edit().putString("profile_photo_uri", uri).apply()
     }
 
-    fun isBiometricEnabled(): Boolean {
-        return prefs.getBoolean("biometric_enabled", false)
-    }
+    fun getProfilePhotoUri(): String? = prefs.getString("profile_photo_uri", null)
 
-    fun setBiometricEnabled(enabled: Boolean) {
+    fun updateName(newName: String) {
         prefs.edit()
-            .putBoolean("biometric_enabled", enabled)
+            .putString("name", newName)
+            .putString("bio_name", newName)
             .apply()
     }
 
+    fun hasActiveSession(): Boolean {
+        return !getToken().isNullOrBlank() && !getUserId().isNullOrBlank()
+    }
+
+    fun isBiometricEnabled(): Boolean = prefs.getBoolean("biometric_enabled", false)
+
+    fun setBiometricEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("biometric_enabled", enabled).apply()
+    }
+
     fun canUseBiometricLogin(): Boolean {
-        val bioId = prefs.getString("bio_id", null)
-        val bioName = prefs.getString("bio_name", null)
+        val bioId    = prefs.getString("bio_id", null)
+        val bioName  = prefs.getString("bio_name", null)
         val bioEmail = prefs.getString("bio_email", null)
         val bioToken = prefs.getString("bio_token", null)
-
         return isBiometricEnabled() &&
                 !bioId.isNullOrBlank() &&
                 !bioName.isNullOrBlank() &&
@@ -67,19 +68,13 @@ class SessionManager(context: Context) {
     }
 
     fun restoreSessionFromBiometric(): Boolean {
-        val bioId = prefs.getString("bio_id", null)
-        val bioName = prefs.getString("bio_name", null)
+        val bioId    = prefs.getString("bio_id", null)
+        val bioName  = prefs.getString("bio_name", null)
         val bioEmail = prefs.getString("bio_email", null)
         val bioToken = prefs.getString("bio_token", null)
 
-        if (
-            bioId.isNullOrBlank() ||
-            bioName.isNullOrBlank() ||
-            bioEmail.isNullOrBlank() ||
-            bioToken.isNullOrBlank()
-        ) {
-            return false
-        }
+        if (bioId.isNullOrBlank() || bioName.isNullOrBlank() ||
+            bioEmail.isNullOrBlank() || bioToken.isNullOrBlank()) return false
 
         prefs.edit()
             .putString("id", bioId)
@@ -92,18 +87,13 @@ class SessionManager(context: Context) {
     }
 
     fun saveTheme(theme: String) {
-        prefs.edit()
-            .putString("theme", theme)
-            .apply()
+        prefs.edit().putString("theme", theme).apply()
     }
 
-    fun getTheme(): String {
-        return prefs.getString("theme", "Claro") ?: "Claro"
-    }
+    fun getTheme(): String = prefs.getString("theme", "Claro") ?: "Claro"
 
     fun logout() {
         val savedTheme = getTheme()
-
         prefs.edit()
             .remove("id")
             .remove("name")
@@ -115,10 +105,6 @@ class SessionManager(context: Context) {
 
     fun logoutAndDisableBiometric() {
         val savedTheme = getTheme()
-
-        prefs.edit()
-            .clear()
-            .putString("theme", savedTheme)
-            .apply()
+        prefs.edit().clear().putString("theme", savedTheme).apply()
     }
 }

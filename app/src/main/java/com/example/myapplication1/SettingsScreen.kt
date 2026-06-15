@@ -68,12 +68,12 @@ fun SettingsScreen(
         }
     }
 
+    val uiColors = appUiColors(settings.temaOscuro)
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                if (settings.temaOscuro) Color(0xFF101010) else Color(0xFFF2F2F2)
-            )
+            .background(uiColors.background)
     ) {
         Column(
             modifier = Modifier
@@ -344,7 +344,7 @@ fun SettingsScreen(
                     .height(52.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF2F6FA3),
+                    containerColor = uiColors.dangerButton,
                     contentColor = Color.White
                 )
             ) {
@@ -395,8 +395,9 @@ fun SettingsCard(
     temaOscuro: Boolean,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val cardColor = if (temaOscuro) Color(0xFF1B1B1B) else Color.White
-    val textColor = if (temaOscuro) Color.White else Color(0xFF202020)
+    val uiColors = appUiColors(temaOscuro)
+    val cardColor = uiColors.card
+    val textColor = uiColors.textPrimary
 
     Column(
         modifier = Modifier
@@ -408,7 +409,7 @@ fun SettingsCard(
             )
             .border(
                 width = 1.dp,
-                color = if (temaOscuro) Color(0xFF333333) else Color(0xFFE5E5E5),
+                color = uiColors.border,
                 shape = RoundedCornerShape(20.dp)
             )
             .padding(16.dp)

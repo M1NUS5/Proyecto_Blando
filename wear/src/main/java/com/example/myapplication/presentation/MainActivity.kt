@@ -76,7 +76,7 @@ import kotlin.math.sqrt
 const val PATH_DATOS_ENTRENAMIENTO = "/datos_entrenamiento"
 const val PATH_CONTROL_ENTRENAMIENTO = "/control_entrenamiento"
 
-const val ACCION_INICIAR = "INICIAR"
+const val ACCION_INICIAR = "INICIAR`"
 const val ACCION_PAUSAR = "PAUSAR"
 const val ACCION_REANUDAR = "REANUDAR"
 const val ACCION_FINALIZAR = "FINALIZAR"
@@ -738,11 +738,12 @@ fun PantallaReloj() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(Color(0xFF050E18)),
         contentAlignment = Alignment.Center
     ) {
 
         FondoReloj()
+        BarraDerecha()
         BarraDerecha()
 
         Column(
@@ -939,7 +940,7 @@ fun PantallaReloj() {
                 "EN_ESPERA" -> {
                     BotonRelojGrande(
                         texto = "Iniciar",
-                        color = Color(0xFF2F80ED),
+                        color = Color(0xFF008BD9),
                         onClick = {
                             iniciarEntrenamiento(enviarAlTelefono = true)
                         }
@@ -948,7 +949,7 @@ fun PantallaReloj() {
 
                 "CORRIENDO" -> {
                     BotonRelojGrande(
-                        texto = "Detener",
+                        texto = "Pausar",
                         color = Color(0xFFE67E22),
                         onClick = {
                             pausarEntrenamiento(enviarAlTelefono = true)
@@ -1101,7 +1102,7 @@ fun CardOscura(
             )
             .border(
                 width = 1.dp,
-                color = Color(0xFF2E2E2E),
+                color = Color(0xFF1A3A55),
                 shape = RoundedCornerShape(24.dp)
             )
             .padding(12.dp),
@@ -1119,15 +1120,15 @@ fun MiniMetricaWear(
 ) {
     Column(
         modifier = modifier
-            .background(
-                color = Color(0xFF242424),
-                shape = RoundedCornerShape(16.dp)
-            )
-            .border(
-                width = 1.dp,
-                color = Color(0xFF333333),
-                shape = RoundedCornerShape(16.dp)
-            )
+        .background(
+            color = Color(0xFF0D2035),
+            shape = RoundedCornerShape(16.dp)
+        )
+        .border(
+            width = 1.dp,
+            color = Color(0xFF1A3A55),
+            shape = RoundedCornerShape(16.dp)
+        )
             .padding(vertical = 8.dp, horizontal = 5.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -1161,7 +1162,7 @@ fun CardIAWear(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                color = Color(0xFF151515),
+                color = Color(0xFF081828),
                 shape = RoundedCornerShape(24.dp)
             )
             .border(
@@ -1524,8 +1525,8 @@ fun FondoReloj() {
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color(0xFF202020),
-                    Color.Black
+                    Color(0xFF0A2540),
+                    Color(0xFF050E18)
                 ),
                 center = center,
                 radius = size.minDimension / 1.5f
@@ -1544,7 +1545,7 @@ fun BarraDerecha() {
         )
 
         drawArc(
-            color = Color.White,
+            color = Color(0xFF069AF1),
             startAngle = -40f,
             sweepAngle = 24f,
             useCenter = false,

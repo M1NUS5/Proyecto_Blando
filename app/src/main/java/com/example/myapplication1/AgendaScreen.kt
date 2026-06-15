@@ -220,21 +220,25 @@ fun AgendaScreen(navController: NavController) {
             .background(uiColors.background)
     ) {
 
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp)
-                .padding(top = 14.dp, bottom = 95.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
+        Column(modifier = Modifier.fillMaxSize()) {
 
-            item {
-                Text(
-                    text = "Agenda / Historial",
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = uiColors.textPrimary
-                )
+            AgendaTopBar(temaOscuro = settings.temaOscuro)
+
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 14.dp, bottom = 95.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+
+                item {
+                    Text(
+                        text = "Agenda / Historial",
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = uiColors.textPrimary
+                    )
 
                 Spacer(modifier = Modifier.height(4.dp))
 
@@ -541,6 +545,7 @@ fun AgendaScreen(navController: NavController) {
                 }
             )
         }
+        }
 
         NavigationBar(
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -809,7 +814,7 @@ fun ActivityHistoryCard(
                     }
 
                     if (actividad.iaRecommendation.isNotBlank()) {
-                        if (isNotBlank()) append("\n")
+                        if (isNotEmpty()) append("\n")
                         append("Recomendación: ${actividad.iaRecommendation}")
                     }
                 },
@@ -1072,17 +1077,18 @@ fun obtenerEspaciosInicialesCalendario(
 }
 
 fun nombreMes(mes: Int): String {
-    val nombre = DateFormatSymbols(Locale("es", "MX")).months[mes - 1]
+    val locale = Locale.forLanguageTag("es-MX")
+    val nombre = DateFormatSymbols(locale).months[mes - 1]
 
     return nombre.replaceFirstChar {
-        it.uppercase(Locale("es", "MX"))
+        it.uppercase(locale)
     }
 }
 
 fun formatearFechaLarga(fecha: String): String {
     val calendario = convertirFechaCalendar(fecha) ?: return fecha
 
-    val locale = Locale("es", "MX")
+    val locale = Locale.forLanguageTag("es-MX")
     val diasSemana = DateFormatSymbols(locale).weekdays
     val meses = DateFormatSymbols(locale).months
 
@@ -1104,5 +1110,45 @@ fun convertirDistancia(
         km * 0.621371
     } else {
         km
+    }
+}
+
+@Composable
+fun AgendaTopBar(temaOscuro: Boolean) {
+    val uiColors = appUiColors(temaOscuro)
+    val gradient = androidx.compose.ui.graphics.Brush.horizontalGradient(
+        listOf(uiColors.topBarStart, uiColors.topBarEnd)
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(60.dp)
+            .background(gradient)
+            .padding(horizontal = 20.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.DateRange,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(26.dp)
+            )
+
+            Text(
+                text = "Agenda",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.sp
+            )
+
+            Spacer(modifier = Modifier.size(26.dp))
+        }
     }
 }

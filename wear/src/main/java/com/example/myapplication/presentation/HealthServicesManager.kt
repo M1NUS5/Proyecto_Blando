@@ -161,7 +161,7 @@ class HealthServicesManager(
                 } catch (e: Exception) {
                     Log.e(TAG, "Error reanudando ejercicio", e)
                 }
-            },
+             },
             ContextCompat.getMainExecutor(context)
         )
     }

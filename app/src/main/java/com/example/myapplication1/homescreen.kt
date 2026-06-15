@@ -100,6 +100,8 @@ fun HomeScreen(navController: NavController) {
 
     var pathPoints by remember { mutableStateOf(emptyList<LatLng>()) }
     var ultimaUbicacionTelefono by remember { mutableStateOf<Location?>(null) }
+    var rutaPlaneada by remember { mutableStateOf(emptyList<LatLng>()) }
+    var modoTrazado by remember { mutableStateOf(false) }
 
     var ultimoComandoProcesado by remember { mutableLongStateOf(0L) }
 
@@ -251,6 +253,7 @@ fun HomeScreen(navController: NavController) {
         pathPoints = emptyList()
         ultimaUbicacionTelefono = null
         aceleracionFiltrada = 0f
+        modoTrazado = false
 
         RunDataStore.iniciarNuevoEntrenamiento()
     }
@@ -686,24 +689,142 @@ fun HomeScreen(navController: NavController) {
                 ) {
                     Column(
                         modifier = Modifier.background(uiColors.mapPanel)
-                    ) {
+                    )
+                    {
+                        // Panel de distancia flotante encima del mapa
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    brush = Brush.horizontalGradient(
+                                        listOf(uiColors.topBarStart, uiColors.topBarEnd)
+                                    )
+                                )
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Distancia",
+                                        fontSize = 11.sp,
+                                        color = Color.White.copy(alpha = 0.75f)
+                                    )
+                                    Text(
+                                        text = "${String.format(Locale.US, "%.2f", distanceMostrada)} $unidadDistancia",
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color.White
+                                    )
+                                }
+
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "Tiempo",
+                                        fontSize = 11.sp,
+                                        color = Color.White.copy(alpha = 0.75f)
+                                    )
+                                    Text(
+                                        text = formatearTiempo(timeSeconds),
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
+
                         GoogleMap(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(250.dp),
-                            cameraPositionState = cameraPositionState
+                            cameraPositionState = cameraPositionState,
+                            onMapClick = { latLng ->
+                                if (modoTrazado) {
+                                    rutaPlaneada = rutaPlaneada + latLng
+                                }
+                            }
                         ) {
+                            if (rutaPlaneada.isNotEmpty()) {
+                                Polyline(
+                                    points = rutaPlaneada,
+                                    width = 8f,
+                                    color = Color(0xFF9FD7F9),
+                                    pattern = listOf(
+                                        com.google.android.gms.maps.model.Dash(20f),
+                                        com.google.android.gms.maps.model.Gap(10f)
+                                    )
+                                )
+                                Marker(
+                                    state = MarkerState(position = rutaPlaneada.first()),
+                                    title = "Inicio planeado"
+                                )
+                                if (rutaPlaneada.size > 1) {
+                                    Marker(
+                                        state = MarkerState(position = rutaPlaneada.last()),
+                                        title = "Meta"
+                                    )
+                                }
+                            }
+
                             if (pathPoints.isNotEmpty()) {
                                 Polyline(
                                     points = pathPoints,
-                                    width = 10f,
-                                    color = Color(0xFF7E57C2)
+                                    width = 12f,
+                                    color = uiColors.mapPolyline
                                 )
-
                                 Marker(
-                                    state = MarkerState(position = pathPoints.last()),
-                                    title = "Tú"
+                                    state = MarkerState(position = pathPoints.first()),
+                                    title = "Inicio"
                                 )
+                                if (pathPoints.size > 1) {
+                                    Marker(
+                                        state = MarkerState(position = pathPoints.last()),
+                                        title = "Tú"
+                                    )
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { modoTrazado = !modoTrazado },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (modoTrazado) uiColors.primaryButton else uiColors.cardSecondary,
+                                    contentColor = if (modoTrazado) uiColors.primaryButtonText else uiColors.textPrimary
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = if (modoTrazado) "✏️ Trazando..." else "✏️ Trazar ruta",
+                                    fontSize = 13.sp
+                                )
+                            }
+
+                            if (rutaPlaneada.isNotEmpty()) {
+                                Button(
+                                    onClick = {
+                                        rutaPlaneada = emptyList()
+                                        modoTrazado = false
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = uiColors.dangerButton,
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("🗑️ Limpiar", fontSize = 13.sp)
+                                }
                             }
                         }
 
@@ -913,75 +1034,77 @@ fun HomeTopBar(
     navController: NavController,
     temaOscuro: Boolean
 ) {
-    val gradient = if (temaOscuro) {
-        Brush.horizontalGradient(
-            listOf(
-                Color(0xFF121826),
-                Color(0xFF243B55)
-            )
+    val uiColors = appUiColors(temaOscuro)
+    val gradient = Brush.horizontalGradient(
+        listOf(
+            uiColors.topBarStart,
+            uiColors.topBarEnd
         )
-    } else {
-        Brush.horizontalGradient(
-            listOf(
-                Color(0xFF7E57C2),
-                Color(0xFFB39DDB)
-            )
-        )
-    }
+    )
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(60.dp)
             .background(gradient)
-            .padding(16.dp)
+            .padding(horizontal = 16.dp)
     ) {
         var expanded by remember { mutableStateOf(false) }
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().align(Alignment.CenterStart),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box {
-                IconButton(onClick = { expanded = true }) {
+            Text(
+                text = "ALYRA",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 3.sp
+            )
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    IconButton(onClick = { expanded = true }) {
+                        Icon(
+                            Icons.Default.Menu,
+                            contentDescription = null,
+                            tint = Color.White
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Perfil") },
+                            onClick = {
+                                expanded = false
+                                navController.navigate("profile")
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text("Configuración") },
+                            onClick = {
+                                expanded = false
+                                navController.navigate("settings")
+                            }
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = { navController.navigate("profile") }
+                ) {
                     Icon(
-                        Icons.Default.Menu,
+                        Icons.Default.AccountCircle,
                         contentDescription = null,
                         tint = Color.White
                     )
                 }
-
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Perfil") },
-                        onClick = {
-                            expanded = false
-                            navController.navigate("profile")
-                        }
-                    )
-
-                    DropdownMenuItem(
-                        text = { Text("Configuración") },
-                        onClick = {
-                            expanded = false
-                            navController.navigate("settings")
-                        }
-                    )
-                }
-            }
-
-            IconButton(
-                onClick = { navController.navigate("profile") }
-            ) {
-                Icon(
-                    Icons.Default.AccountCircle,
-                    contentDescription = null,
-                    tint = Color.White
-                )
             }
         }
     }
@@ -1470,23 +1593,8 @@ fun detectarActividadHome(
         )
     }
 
-    if (cadencia in 1.0..85.0 && bpm < 125) {
-        return ActividadDetectadaHome(
-            estado = "Caminando",
-            consejo = "Movimiento ligero detectado. Ritmo estable de caminata.",
-            intensidad = 1
-        )
-    }
-
-    if (cadencia in 86.0..135.0 || bpm in 125..150) {
-        return ActividadDetectadaHome(
-            estado = "Trotando",
-            consejo = "Ritmo moderado detectado. Mantén la respiración controlada.",
-            intensidad = 2
-        )
-    }
-
-    if (cadencia > 135.0 || bpm > 150) {
+    // 1. Corriendo (Prioridad alta por intensidad)
+    if (cadencia > 135.0 || bpm > 150 || (pace > 0.0 && pace <= 6.5 && bpm >= 135)) {
         return ActividadDetectadaHome(
             estado = "Corriendo",
             consejo = "Ritmo alto detectado. Controla tu frecuencia cardiaca.",
@@ -1494,19 +1602,21 @@ fun detectarActividadHome(
         )
     }
 
-    if (pace > 0.0 && pace <= 6.5 && bpm >= 135) {
+    // 2. Trotando
+    if (cadencia in 86.0..135.0 || bpm in 125..150 || (pace > 6.5 && pace <= 10.0 && bpm >= 115)) {
         return ActividadDetectadaHome(
-            estado = "Corriendo",
-            consejo = "Pace rápido y BPM elevado. Estás corriendo.",
-            intensidad = 3
+            estado = "Trotando",
+            consejo = "Ritmo moderado detectado. Mantén la respiración controlada.",
+            intensidad = 2
         )
     }
 
-    if (pace > 6.5 && pace <= 10.0 && bpm >= 115) {
+    // 3. Caminando
+    if (cadencia in 1.0..85.0 && bpm < 125) {
         return ActividadDetectadaHome(
-            estado = "Trotando",
-            consejo = "Pace moderado. Se detecta trote.",
-            intensidad = 2
+            estado = "Caminando",
+            consejo = "Movimiento ligero detectado. Ritmo estable de caminata.",
+            intensidad = 1
         )
     }
 
