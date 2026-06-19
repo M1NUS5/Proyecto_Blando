@@ -53,6 +53,7 @@ dependencies {
 
     implementation("com.google.ai.edge.litert:litert:2.1.0")
 
+
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
 
     implementation(platform(libs.androidx.compose.bom))
@@ -71,6 +72,7 @@ dependencies {
 
     implementation("com.google.maps.android:maps-compose:2.11.4")
     implementation("com.google.android.gms:play-services-maps:18.2.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.android.gms:play-services-location:21.0.1")
     implementation("com.google.maps.android:maps-compose:2.11.4")
     implementation("com.google.android.gms:play-services-maps:18.2.0")

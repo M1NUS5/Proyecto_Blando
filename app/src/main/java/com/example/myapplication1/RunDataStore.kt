@@ -1,34 +1,38 @@
 package com.example.myapplication1
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
 object RunDataStore {
 
-    var currentPace by mutableStateOf(0f)
-    var currentTime by mutableStateOf(0f)
-    var currentDistance by mutableStateOf(0f)
+    var currentPace by mutableFloatStateOf(0f)
+    var currentTime by mutableFloatStateOf(0f)
+    var currentDistance by mutableFloatStateOf(0f)
 
-    var lastPace by mutableStateOf(0f)
-    var lastTime by mutableStateOf(0f)
-    var lastDistance by mutableStateOf(0f)
+    var lastPace by mutableFloatStateOf(0f)
+    var lastTime by mutableFloatStateOf(0f)
+    var lastDistance by mutableFloatStateOf(0f)
 
-    var lastBpm by mutableStateOf(0f)
-    var lastCadence by mutableStateOf(0f)
-    var lastAcceleration by mutableStateOf(0f)
-    var lastSteps by mutableStateOf(0)
+    var lastBpm by mutableFloatStateOf(0f)
+    var lastCadence by mutableFloatStateOf(0f)
+    var lastAcceleration by mutableFloatStateOf(0f)
+    var lastSteps by mutableIntStateOf(0)
 
     var hasFinishedRun by mutableStateOf(false)
     var isTracking by mutableStateOf(false)
 
     var estadoEntrenamiento by mutableStateOf("EN_ESPERA")
 
-    var startTimeMs by mutableStateOf(0L)
-    var currentTimeMs by mutableStateOf(0L)
-    var accumulatedTimeMs by mutableStateOf(0L)
+    var startTimeMs by mutableLongStateOf(0L)
+    var currentTimeMs by mutableLongStateOf(0L)
+    var accumulatedTimeMs by mutableLongStateOf(0L)
 
-    var phoneDistanceMeters by mutableStateOf(0.0)
+    var phoneDistanceMeters by mutableDoubleStateOf(0.0)
 
     fun iniciarNuevoEntrenamiento() {
         estadoEntrenamiento = "CORRIENDO"

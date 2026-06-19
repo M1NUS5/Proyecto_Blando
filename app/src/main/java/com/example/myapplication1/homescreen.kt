@@ -5,6 +5,8 @@ import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.location.Location
 import android.widget.Toast
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -34,6 +37,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -101,7 +105,15 @@ fun HomeScreen(navController: NavController) {
     var pathPoints by remember { mutableStateOf(emptyList<LatLng>()) }
     var ultimaUbicacionTelefono by remember { mutableStateOf<Location?>(null) }
     var rutaPlaneada by remember { mutableStateOf(emptyList<LatLng>()) }
+    var puntoInicio by remember { mutableStateOf<LatLng?>(null) }
+    var puntoDestino by remember { mutableStateOf<LatLng?>(null) }
     var modoTrazado by remember { mutableStateOf(false) }
+    var cargandoRuta by remember { mutableStateOf(false) }
+
+    val scope = rememberCoroutineScope()
+    val apiKey = context.packageManager
+        .getApplicationInfo(context.packageName, android.content.pm.PackageManager.GET_META_DATA)
+        .metaData.getString("com.google.android.geo.API_KEY") ?: ""
 
     var ultimoComandoProcesado by remember { mutableLongStateOf(0L) }
 
@@ -744,7 +756,21 @@ fun HomeScreen(navController: NavController) {
                             cameraPositionState = cameraPositionState,
                             onMapClick = { latLng ->
                                 if (modoTrazado) {
-                                    rutaPlaneada = rutaPlaneada + latLng
+                                    if (puntoInicio == null) {
+                                        puntoInicio = latLng
+                                    } else if (puntoDestino == null) {
+                                        puntoDestino = latLng
+                                        cargandoRuta = true
+                                        modoTrazado = false
+                                        scope.launch {
+                                            rutaPlaneada = DirectionsService.obtenerRuta(
+                                                origen = puntoInicio!!,
+                                                destino = puntoDestino!!,
+                                                apiKey = apiKey
+                                            )
+                                            cargandoRuta = false
+                                        }
+                                    }
                                 }
                             }
                         ) {
@@ -788,6 +814,27 @@ fun HomeScreen(navController: NavController) {
                                 }
                             }
                         }
+                        if (cargandoRuta) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    color = uiColors.primaryButton,
+                                    modifier = Modifier.size(22.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    "Calculando ruta...",
+                                    color = uiColors.textSecondary,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
 
                         Row(
                             modifier = Modifier
@@ -796,7 +843,16 @@ fun HomeScreen(navController: NavController) {
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Button(
-                                onClick = { modoTrazado = !modoTrazado },
+                                onClick = {
+                                    if (!modoTrazado) {
+                                        puntoInicio = null
+                                        puntoDestino = null
+                                        rutaPlaneada = emptyList()
+                                        modoTrazado = true
+                                    } else {
+                                        modoTrazado = false
+                                    }
+                                },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (modoTrazado) uiColors.primaryButton else uiColors.cardSecondary,
                                     contentColor = if (modoTrazado) uiColors.primaryButtonText else uiColors.textPrimary
@@ -805,7 +861,11 @@ fun HomeScreen(navController: NavController) {
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Text(
-                                    text = if (modoTrazado) "✏️ Trazando..." else "✏️ Trazar ruta",
+                                    text = when {
+                                        modoTrazado && puntoInicio == null -> "📍 Toca inicio"
+                                        modoTrazado && puntoInicio != null -> "🏁 Toca destino"
+                                        else -> "✏️ Trazar ruta"
+                                    },
                                     fontSize = 13.sp
                                 )
                             }
@@ -814,6 +874,8 @@ fun HomeScreen(navController: NavController) {
                                 Button(
                                     onClick = {
                                         rutaPlaneada = emptyList()
+                                        puntoInicio = null
+                                        puntoDestino = null
                                         modoTrazado = false
                                     },
                                     colors = ButtonDefaults.buttonColors(
@@ -1593,8 +1655,7 @@ fun detectarActividadHome(
         )
     }
 
-    // 1. Corriendo (Prioridad alta por intensidad)
-    if (cadencia > 135.0 || bpm > 150 || (pace > 0.0 && pace <= 6.5 && bpm >= 135)) {
+        if (cadencia > 135.0 || bpm > 150 || (pace > 0.0 && pace <= 6.5 && bpm >= 135)) {
         return ActividadDetectadaHome(
             estado = "Corriendo",
             consejo = "Ritmo alto detectado. Controla tu frecuencia cardiaca.",
@@ -1602,7 +1663,6 @@ fun detectarActividadHome(
         )
     }
 
-    // 2. Trotando
     if (cadencia in 86.0..135.0 || bpm in 125..150 || (pace > 6.5 && pace <= 10.0 && bpm >= 115)) {
         return ActividadDetectadaHome(
             estado = "Trotando",
@@ -1611,8 +1671,7 @@ fun detectarActividadHome(
         )
     }
 
-    // 3. Caminando
-    if (cadencia in 1.0..85.0 && bpm < 125) {
+      if (cadencia in 1.0..85.0) {
         return ActividadDetectadaHome(
             estado = "Caminando",
             consejo = "Movimiento ligero detectado. Ritmo estable de caminata.",

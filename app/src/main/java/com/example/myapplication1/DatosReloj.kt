@@ -14,5 +14,5 @@ data class DatosReloj(
     val estadoIA: String = "Sin datos",
     val consejoIA: String = "Esperando datos del reloj",
 
-    val timestamp: Long = 0L
+    val timestamp: Long = 0L,
 )

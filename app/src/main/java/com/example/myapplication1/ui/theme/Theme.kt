@@ -1,7 +1,6 @@
 package com.example.myapplication1.ui.theme
 
 import android.app.Activity
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -35,7 +34,7 @@ private val AlyraLightColorScheme = lightColorScheme(
     onSurfaceVariant = LightTextSecondary,
 
     outline          = LightBorder,
-    error            = ColorDanger
+    error            = ColorDanger,
 )
 
 private val AlyradarkColorScheme = darkColorScheme(
@@ -61,13 +60,13 @@ private val AlyradarkColorScheme = darkColorScheme(
     onSurfaceVariant = DarkTextSecondary,
 
     outline          = DarkBorder,
-    error            = ColorDanger
+    error            = ColorDanger,
 )
 
 @Composable
 fun MyApplication1Theme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     val colorScheme = if (darkTheme) AlyradarkColorScheme else AlyraLightColorScheme
 
