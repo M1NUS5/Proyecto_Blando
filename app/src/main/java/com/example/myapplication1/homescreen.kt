@@ -477,6 +477,26 @@ fun HomeScreen(navController: NavController) {
     }
 
     DisposableEffect(Unit) {
+        val listener = com.google.android.gms.wearable.MessageClient.OnMessageReceivedListener { messageEvent ->
+            if (messageEvent.path == PATH_CONTROL_ENTRENAMIENTO) {
+                val accion = String(messageEvent.data)
+                when (accion) {
+                    ACCION_INICIAR   -> iniciarEntrenamientoDesdeTelefono(enviarAlReloj = false, validarPermiso = false)
+                    ACCION_PAUSAR    -> pausarEntrenamientoDesdeTelefono(enviarAlReloj = false)
+                    ACCION_REANUDAR  -> reanudarEntrenamientoDesdeTelefono(enviarAlReloj = false, validarPermiso = false)
+                    ACCION_FINALIZAR -> finalizarEntrenamientoDesdeTelefono(enviarAlReloj = false)
+                }
+            }
+        }
+
+        Wearable.getMessageClient(context).addListener(listener)
+
+        onDispose {
+            Wearable.getMessageClient(context).removeListener(listener)
+        }
+    }
+
+    DisposableEffect(Unit) {
         val listener = com.google.android.gms.wearable.DataClient.OnDataChangedListener { dataEvents ->
             for (event in dataEvents) {
                 if (event.type == DataEvent.TYPE_CHANGED) {
