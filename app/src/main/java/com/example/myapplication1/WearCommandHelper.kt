@@ -23,9 +23,8 @@ fun enviarComandoEntrenamiento(
         dataMap.putString("accion", accion)
         dataMap.putString("origen", origen)
         dataMap.putLong("timestamp", System.currentTimeMillis())
-    }.asPutDataRequest()
-
-    request.setUrgent()
+        dataMap.putLong("nonce", System.nanoTime())
+    }.asPutDataRequest().setUrgent()
 
     Wearable.getDataClient(context).putDataItem(request)
 }

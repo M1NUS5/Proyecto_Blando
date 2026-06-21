@@ -130,7 +130,6 @@ class MainActivity : ComponentActivity() {
 @SuppressLint("MissingPermission")
 @Composable
 fun PantallaReloj() {
-
     val context = LocalContext.current
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
 
@@ -420,6 +419,24 @@ fun PantallaReloj() {
         enviarEstadoActual()
     }
 
+    LaunchedEffect(Unit) {
+        WearRunState.accion.collect { accion ->
+            accion ?: return@collect
+            when (accion) {
+                ACCION_INICIAR   -> if (estadoEntrenamiento != "CORRIENDO") iniciarEntrenamiento(enviarAlTelefono = false)
+                ACCION_PAUSAR    -> pausarEntrenamiento(enviarAlTelefono = false)
+                ACCION_REANUDAR  -> reanudarEntrenamiento(enviarAlTelefono = false)
+                ACCION_FINALIZAR -> finalizarEntrenamiento(enviarAlTelefono = false)
+            }
+            WearRunState.consumir()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        delay(1500)
+        enviarEstadoActual()
+    }
+
     LaunchedEffect(estadoEntrenamiento) {
         while (estadoEntrenamiento == "CORRIENDO") {
             val ahora = System.currentTimeMillis()
@@ -443,39 +460,22 @@ fun PantallaReloj() {
     }
 
     DisposableEffect(Unit) {
-        val listener = com.google.android.gms.wearable.DataClient.OnDataChangedListener { dataEvents ->
-            for (event in dataEvents) {
-                if (event.type == DataEvent.TYPE_CHANGED) {
-                    val item = event.dataItem
-
-                    if (item.uri.path == PATH_CONTROL_ENTRENAMIENTO) {
-                        val dataMap = DataMapItem.fromDataItem(item).dataMap
-
-                        val accion = dataMap.getString("accion") ?: return@OnDataChangedListener
-                        val origen = dataMap.getString("origen") ?: ""
-                        val timestamp = dataMap.getLong("timestamp")
-
-                        if (origen == ORIGEN_TELEFONO && timestamp != ultimoComandoProcesado) {
-                            ultimoComandoProcesado = timestamp
-
-                            mainHandler.post {
-                                when (accion) {
-                                    ACCION_INICIAR -> iniciarEntrenamiento(enviarAlTelefono = false)
-                                    ACCION_PAUSAR -> pausarEntrenamiento(enviarAlTelefono = false)
-                                    ACCION_REANUDAR -> reanudarEntrenamiento(enviarAlTelefono = false)
-                                    ACCION_FINALIZAR -> finalizarEntrenamiento(enviarAlTelefono = false)
-                                }
-                            }
-                        }
-                    }
+        val listener = com.google.android.gms.wearable.MessageClient.OnMessageReceivedListener { messageEvent ->
+            if (messageEvent.path == PATH_CONTROL_ENTRENAMIENTO) {
+                val accion = String(messageEvent.data)
+                when (accion) {
+                    ACCION_INICIAR   -> iniciarEntrenamiento(enviarAlTelefono = false)
+                    ACCION_PAUSAR    -> pausarEntrenamiento(enviarAlTelefono = false)
+                    ACCION_REANUDAR  -> reanudarEntrenamiento(enviarAlTelefono = false)
+                    ACCION_FINALIZAR -> finalizarEntrenamiento(enviarAlTelefono = false)
                 }
             }
         }
 
-        Wearable.getDataClient(context).addListener(listener)
+        Wearable.getMessageClient(context).addListener(listener)
 
         onDispose {
-            Wearable.getDataClient(context).removeListener(listener)
+            Wearable.getMessageClient(context).removeListener(listener)
         }
     }
 
@@ -1410,25 +1410,19 @@ fun enviarDatosAlTelefono(
         dataMap.putInt("bpm", bpm)
         dataMap.putInt("bpmActual", bpmActual)
         dataMap.putInt("bpmMaximo", bpmMaximo)
-
         dataMap.putInt("pasos", pasos)
         dataMap.putFloat("distancia", distancia)
-
         dataMap.putFloat("aceleracion", aceleracion)
         dataMap.putFloat("aceleracionActual", aceleracionActual)
-
         dataMap.putLong("tiempoSegundos", tiempoSegundos)
         dataMap.putFloat("pace", pace)
         dataMap.putFloat("cadencia", cadencia)
-
         dataMap.putString("estadoEntrenamiento", estadoEntrenamiento)
         dataMap.putString("estadoIA", estadoIA)
         dataMap.putString("consejoIA", consejoIA)
-
         dataMap.putLong("timestamp", System.currentTimeMillis())
-    }.asPutDataRequest()
-
-    request.setUrgent()
+        dataMap.putLong("nonce", System.nanoTime())
+    }.asPutDataRequest().setUrgent()
 
     Wearable.getDataClient(context).putDataItem(request)
 }
@@ -1438,17 +1432,17 @@ fun enviarComandoEntrenamiento(
     accion: String,
     origen: String
 ) {
-    val request = PutDataMapRequest.create(PATH_CONTROL_ENTRENAMIENTO).apply {
-        dataMap.putString("accion", accion)
-        dataMap.putString("origen", origen)
-        dataMap.putLong("timestamp", System.currentTimeMillis())
-    }.asPutDataRequest()
-
-    request.setUrgent()
-
-    Wearable.getDataClient(context).putDataItem(request)
+    Wearable.getNodeClient(context).connectedNodes
+        .addOnSuccessListener { nodes ->
+            for (node in nodes) {
+                Wearable.getMessageClient(context).sendMessage(
+                    node.id,
+                    PATH_CONTROL_ENTRENAMIENTO,
+                    accion.toByteArray()
+                )
+            }
+        }
 }
-
 object PrecisionWearUtils {
 
     fun calcularCadencia(
