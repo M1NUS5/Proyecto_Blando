@@ -9,7 +9,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +19,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -100,6 +98,12 @@ fun HomeScreen(navController: NavController) {
 
     var pathPoints by remember { mutableStateOf(emptyList<LatLng>()) }
     var ultimaUbicacionTelefono by remember { mutableStateOf<Location?>(null) }
+    var currentLocation by remember { mutableStateOf<LatLng?>(null) }
+
+    val juarez = LatLng(31.6904, -106.4245)
+    val cameraPositionState = rememberCameraPositionState {
+        position = CameraPosition.fromLatLngZoom(juarez, 15f)
+    }
 
     var ultimoComandoProcesado by remember { mutableLongStateOf(0L) }
 
@@ -116,11 +120,31 @@ fun HomeScreen(navController: NavController) {
         LocationServices.getFusedLocationProviderClient(context)
     }
 
-    val juarez = LatLng(31.6904, -106.4245)
-
-    val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(juarez, 15f)
+    LaunchedEffect(Unit) {
+        if (
+            ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            fusedLocationClient.lastLocation
+                .addOnSuccessListener { location ->
+                    location?.let {
+                        val userPosition = LatLng(
+                            it.latitude,
+                            it.longitude
+                        )
+                        currentLocation = userPosition
+                        cameraPositionState.position =
+                            CameraPosition.fromLatLngZoom(
+                                userPosition,
+                                17f
+                            )
+                    }
+                }
+        }
     }
+
 
     val locationRequest = remember {
         LocationRequest.Builder(
@@ -694,6 +718,13 @@ fun HomeScreen(navController: NavController) {
                             cameraPositionState = cameraPositionState
                         ) {
                             if (pathPoints.isNotEmpty()) {
+                                currentLocation?.let {
+
+                                    Marker(
+                                        state = MarkerState(position = it),
+                                        title = "Mi ubicación"
+                                    )
+                                }
                                 Polyline(
                                     points = pathPoints,
                                     width = 10f,
@@ -1375,36 +1406,6 @@ fun formatearTiempo(segundos: Long): String {
     return String.format(Locale.US, "%02d:%02d", min, sec)
 }
 
-@Composable
-fun OptionItem(icon: ImageVector, text: String) {
-    val settings by AppSettingsStore.settings.collectAsState()
-    val uiColors = appUiColors(settings.temaOscuro)
-
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            modifier = Modifier
-                .size(60.dp)
-                .background(
-                    uiColors.primaryButton,
-                    shape = RoundedCornerShape(50)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = uiColors.primaryButtonText
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = text,
-            color = uiColors.textPrimary
-        )
-    }
-}
 
 @Composable
 fun StatItem(
@@ -1470,23 +1471,7 @@ fun detectarActividadHome(
         )
     }
 
-    if (cadencia in 1.0..85.0 && bpm < 125) {
-        return ActividadDetectadaHome(
-            estado = "Caminando",
-            consejo = "Movimiento ligero detectado. Ritmo estable de caminata.",
-            intensidad = 1
-        )
-    }
-
-    if (cadencia in 86.0..135.0 || bpm in 125..150) {
-        return ActividadDetectadaHome(
-            estado = "Trotando",
-            consejo = "Ritmo moderado detectado. Mantén la respiración controlada.",
-            intensidad = 2
-        )
-    }
-
-    if (cadencia > 135.0 || bpm > 150) {
+    if (cadencia > 135.0 || bpm > 150 || (pace > 0.0 && pace <= 6.5 && bpm >= 135)) {
         return ActividadDetectadaHome(
             estado = "Corriendo",
             consejo = "Ritmo alto detectado. Controla tu frecuencia cardiaca.",
@@ -1494,19 +1479,20 @@ fun detectarActividadHome(
         )
     }
 
-    if (pace > 0.0 && pace <= 6.5 && bpm >= 135) {
+    // Moderate intensity
+    if (cadencia in 86.0..135.0 || bpm in 125..150 || (pace > 6.5 && pace <= 10.0 && bpm >= 115)) {
         return ActividadDetectadaHome(
-            estado = "Corriendo",
-            consejo = "Pace rápido y BPM elevado. Estás corriendo.",
-            intensidad = 3
+            estado = "Trotando",
+            consejo = "Ritmo moderado detectado. Mantén la respiración controlada.",
+            intensidad = 2
         )
     }
 
-    if (pace > 6.5 && pace <= 10.0 && bpm >= 115) {
+    if (cadencia in 1.0..85.0) {
         return ActividadDetectadaHome(
-            estado = "Trotando",
-            consejo = "Pace moderado. Se detecta trote.",
-            intensidad = 2
+            estado = "Caminando",
+            consejo = "Movimiento ligero detectado. Ritmo estable de caminata.",
+            intensidad = 1
         )
     }
 
