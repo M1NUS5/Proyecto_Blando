@@ -939,7 +939,7 @@ fun PantallaReloj() {
                 "EN_ESPERA" -> {
                     BotonRelojGrande(
                         texto = "Iniciar",
-                        color = Color(0xFF2F80ED),
+                        color = Color(0xFF26A69A),
                         onClick = {
                             iniciarEntrenamiento(enviarAlTelefono = true)
                         }
@@ -949,7 +949,7 @@ fun PantallaReloj() {
                 "CORRIENDO" -> {
                     BotonRelojGrande(
                         texto = "Detener",
-                        color = Color(0xFFE67E22),
+                        color = Color(0xFFFFB74D),
                         onClick = {
                             pausarEntrenamiento(enviarAlTelefono = true)
                         }
@@ -959,7 +959,7 @@ fun PantallaReloj() {
                 "PAUSADO" -> {
                     BotonRelojGrande(
                         texto = "Reanudar",
-                        color = Color(0xFF27AE60),
+                        color = Color(0xFF26A69A),
                         onClick = {
                             reanudarEntrenamiento(enviarAlTelefono = true)
                         }
@@ -969,7 +969,7 @@ fun PantallaReloj() {
 
                     BotonRelojGrande(
                         texto = "Finalizar",
-                        color = Color(0xFFC0392B),
+                        color = Color(0xFFD9534F),
                         onClick = {
                             finalizarEntrenamiento(enviarAlTelefono = true)
                         }
@@ -992,7 +992,7 @@ fun PantallaReloj() {
 
                     BotonRelojGrande(
                         texto = "Nuevo entrenamiento",
-                        color = Color(0xFF2F80ED),
+                        color = Color(0xFF26A69A),
                         onClick = {
                             iniciarEntrenamiento(enviarAlTelefono = true)
                         }
@@ -1011,16 +1011,16 @@ fun EstadoEntrenamientoChip(
     estadoEntrenamiento: String
 ) {
     val colorFondo = when (estadoEntrenamiento) {
-        "CORRIENDO" -> Color(0xFF123D2A)
+        "CORRIENDO" -> Color(0xFF0D3330)
         "PAUSADO" -> Color(0xFF4A3213)
-        "FINALIZADO" -> Color(0xFF12314A)
+        "FINALIZADO" -> Color(0xFF0D2E2C)
         else -> Color(0xFF262626)
     }
 
     val colorTexto = when (estadoEntrenamiento) {
-        "CORRIENDO" -> Color(0xFF51D88A)
+        "CORRIENDO" -> Color(0xFF4DB6AC)
         "PAUSADO" -> Color(0xFFFFB74D)
-        "FINALIZADO" -> Color(0xFF64B5F6)
+        "FINALIZADO" -> Color(0xFF80CBC4)
         else -> Color(0xFFBDBDBD)
     }
 
@@ -1377,15 +1377,15 @@ fun generarConsejo(estado: String): String {
 
 fun colorEstado(estado: String): Color {
     return when (estado) {
-        "Corriendo" -> Color(0xFFFF9800)
-        "Trotando" -> Color(0xFF2196F3)
-        "Caminando" -> Color(0xFF4CAF50)
+        "Corriendo" -> Color(0xFFFFB74D)
+        "Trotando" -> Color(0xFF26A69A)
+        "Caminando" -> Color(0xFF4DB6AC)
         "Reposo" -> Color(0xFFFFB74D)
-        "Preparando sensores" -> Color(0xFF64B5F6)
+        "Preparando sensores" -> Color(0xFF80CBC4)
         "Entrenamiento pausado" -> Color(0xFFFFB74D)
-        "Entrenamiento finalizado" -> Color(0xFF64B5F6)
-        "En espera" -> Color(0xFF4CAF50)
-        else -> Color(0xFF4CAF50)
+        "Entrenamiento finalizado" -> Color(0xFF80CBC4)
+        "En espera" -> Color(0xFF80CBC4)
+        else -> Color(0xFF80CBC4)
     }
 }
 
@@ -1524,7 +1524,7 @@ fun FondoReloj() {
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color(0xFF202020),
+                    Color(0xFF0D2E2C),
                     Color.Black
                 ),
                 center = center,

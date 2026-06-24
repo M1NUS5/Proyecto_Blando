@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -68,6 +72,7 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.LatLngBounds
 import com.google.android.gms.wearable.DataEvent
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.Wearable
@@ -97,6 +102,7 @@ fun HomeScreen(navController: NavController) {
     val estadoEntrenamiento = RunDataStore.estadoEntrenamiento
 
     var pathPoints by remember { mutableStateOf(emptyList<LatLng>()) }
+    var finishedPathPoints by remember { mutableStateOf(emptyList<LatLng>()) }
     var ultimaUbicacionTelefono by remember { mutableStateOf<Location?>(null) }
     var currentLocation by remember { mutableStateOf<LatLng?>(null) }
 
@@ -273,6 +279,7 @@ fun HomeScreen(navController: NavController) {
         }
 
         pathPoints = emptyList()
+        finishedPathPoints = emptyList()
         ultimaUbicacionTelefono = null
         aceleracionFiltrada = 0f
 
@@ -454,6 +461,10 @@ fun HomeScreen(navController: NavController) {
             pace = finalPace
         )
 
+        if (pathPoints.size >= 2) {
+            finishedPathPoints = pathPoints
+        }
+
         RunDataStore.finalizarEntrenamiento()
 
         if (settings.guardarUltimaCorrida && settings.prediccionIAActiva) {
@@ -601,6 +612,29 @@ fun HomeScreen(navController: NavController) {
         }
     }
 
+    // Zoom al recorrido completo cuando se guarda finishedPathPoints
+    LaunchedEffect(finishedPathPoints) {
+        if (finishedPathPoints.size >= 2) {
+            val boundsBuilder = LatLngBounds.builder()
+            finishedPathPoints.forEach { boundsBuilder.include(it) }
+            val bounds = boundsBuilder.build()
+            val center = bounds.center
+            // Calculamos zoom aproximado para ver todo el recorrido
+            val latDiff = bounds.northeast.latitude - bounds.southwest.latitude
+            val lngDiff = bounds.northeast.longitude - bounds.southwest.longitude
+            val maxDiff = maxOf(latDiff, lngDiff)
+            val zoom = when {
+                maxDiff < 0.002 -> 17f
+                maxDiff < 0.005 -> 16f
+                maxDiff < 0.01  -> 15f
+                maxDiff < 0.03  -> 14f
+                maxDiff < 0.06  -> 13f
+                else            -> 12f
+            }
+            cameraPositionState.position = CameraPosition.fromLatLngZoom(center, zoom)
+        }
+    }
+
     val timeSeconds = RunDataStore.obtenerTiempoActualSegundos()
 
     val distanceKmTelefono = RunDataStore.phoneDistanceMeters / 1000.0
@@ -717,23 +751,47 @@ fun HomeScreen(navController: NavController) {
                                 .height(250.dp),
                             cameraPositionState = cameraPositionState
                         ) {
-                            if (pathPoints.isNotEmpty()) {
+                            // Mostrar ubicación actual siempre (sin tracking)
+                            if (pathPoints.isEmpty() && finishedPathPoints.isEmpty()) {
                                 currentLocation?.let {
-
                                     Marker(
                                         state = MarkerState(position = it),
                                         title = "Mi ubicación"
                                     )
                                 }
+                            }
+
+                            // Recorrido en tiempo real durante el tracking
+                            if (pathPoints.isNotEmpty()) {
                                 Polyline(
                                     points = pathPoints,
                                     width = 10f,
-                                    color = Color(0xFF7E57C2)
+                                    color = Color(0xFF26A69A)
                                 )
-
+                                Marker(
+                                    state = MarkerState(position = pathPoints.first()),
+                                    title = "Inicio"
+                                )
                                 Marker(
                                     state = MarkerState(position = pathPoints.last()),
                                     title = "Tú"
+                                )
+                            }
+
+                            // Recorrido finalizado: mostrar inicio y fin
+                            if (finishedPathPoints.size >= 2) {
+                                Polyline(
+                                    points = finishedPathPoints,
+                                    width = 10f,
+                                    color = Color(0xFF26A69A)
+                                )
+                                Marker(
+                                    state = MarkerState(position = finishedPathPoints.first()),
+                                    title = "Inicio"
+                                )
+                                Marker(
+                                    state = MarkerState(position = finishedPathPoints.last()),
+                                    title = "Fin"
                                 )
                             }
                         }
@@ -947,15 +1005,15 @@ fun HomeTopBar(
     val gradient = if (temaOscuro) {
         Brush.horizontalGradient(
             listOf(
-                Color(0xFF121826),
-                Color(0xFF243B55)
+                Color(0xFF0D1F1E),
+                Color(0xFF26A69A)
             )
         )
     } else {
         Brush.horizontalGradient(
             listOf(
-                Color(0xFF7E57C2),
-                Color(0xFFB39DDB)
+                Color(0xFF26A69A),
+                Color(0xFF4DB6AC)
             )
         )
     }
@@ -1003,6 +1061,21 @@ fun HomeTopBar(
                         }
                     )
                 }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Image(
+                    painter = painterResource(id = R.drawable.logo_alyra),
+                    contentDescription = "ALYRA logo",
+                    modifier = Modifier.size(32.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "ALYRA",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
             }
 
             IconButton(
