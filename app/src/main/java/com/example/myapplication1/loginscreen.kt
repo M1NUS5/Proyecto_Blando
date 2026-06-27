@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
+
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,6 +64,10 @@ fun AuthScreen(
 ) {
     val context = LocalContext.current
     val session = remember { SessionManager(context) }
+    val settings by AppSettingsStore.settings.collectAsState()
+    val uiColors = appUiColors(settings.temaOscuro)
+
+    LaunchedEffect(Unit) { AppSettingsStore.cargar(context) }
 
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf(session.getBiometricEmail() ?: "") }
@@ -97,9 +104,14 @@ fun AuthScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                Brush.verticalGradient(
-                    listOf(TealPrimary, TealSurface)
-                )
+                if (settings.temaOscuro)
+                    Brush.verticalGradient(
+                        listOf(Color(0xFF0D2E2C), Color(0xFF0D1F1E))
+                    )
+                else
+                    Brush.verticalGradient(
+                        listOf(TealPrimary, TealSurface)
+                    )
             )
     ) {
         Column(
@@ -162,7 +174,7 @@ fun AuthScreen(
             Card(
                 shape = RoundedCornerShape(24.dp),
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
+                colors = CardDefaults.cardColors(containerColor = uiColors.card),
                 elevation = CardDefaults.cardElevation(12.dp)
             ) {
                 Column(
@@ -173,14 +185,14 @@ fun AuthScreen(
                         text = if (isLogin) "Bienvenido" else "Crear cuenta",
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
-                        color = TealPrimary
+                        color = uiColors.textSecondary
                     )
 
                     if (huellaDisponible) {
                         Text(
                             text = "Puedes entrar con huella sin escribir contraseña.",
                             fontSize = 13.sp,
-                            color = TealMedium
+                            color = uiColors.textMuted
                         )
                     }
 
@@ -194,6 +206,10 @@ fun AuthScreen(
                             shape = RoundedCornerShape(14.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = TealPrimary,
+                                focusedTextColor = uiColors.textPrimary,
+                                unfocusedTextColor = uiColors.textPrimary,
+                                focusedContainerColor = uiColors.inputBackground,
+                                unfocusedContainerColor = uiColors.inputBackground,
                                 unfocusedBorderColor = TealLight
                             )
                         )
@@ -208,6 +224,10 @@ fun AuthScreen(
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = TealPrimary,
+                            focusedTextColor = uiColors.textPrimary,
+                            unfocusedTextColor = uiColors.textPrimary,
+                            focusedContainerColor = uiColors.inputBackground,
+                            unfocusedContainerColor = uiColors.inputBackground,
                             unfocusedBorderColor = TealLight
                         )
                     )
@@ -222,6 +242,10 @@ fun AuthScreen(
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = TealPrimary,
+                            focusedTextColor = uiColors.textPrimary,
+                            unfocusedTextColor = uiColors.textPrimary,
+                            focusedContainerColor = uiColors.inputBackground,
+                            unfocusedContainerColor = uiColors.inputBackground,
                             unfocusedBorderColor = TealLight
                         )
                     )
@@ -237,6 +261,10 @@ fun AuthScreen(
                             shape = RoundedCornerShape(14.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = TealPrimary,
+                                focusedTextColor = uiColors.textPrimary,
+                                unfocusedTextColor = uiColors.textPrimary,
+                                focusedContainerColor = uiColors.inputBackground,
+                                unfocusedContainerColor = uiColors.inputBackground,
                                 unfocusedBorderColor = TealLight
                             )
                         )
@@ -315,7 +343,7 @@ fun AuthScreen(
             Spacer(modifier = Modifier.height(20.dp))
 
             Row {
-                Text(text = if (isLogin) "¿No tienes cuenta? " else "¿Ya tienes cuenta? ", color = TealPale)
+                Text(text = if (isLogin) "¿No tienes cuenta? " else "¿Ya tienes cuenta? ", color = uiColors.textSecondary)
                 Text(
                     text = if (isLogin) "Regístrate" else "Iniciar sesión",
                     color = Color.White,

@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.rememberScrollState
@@ -92,6 +93,7 @@ import java.util.Locale
 @Composable
 fun HomeScreen(navController: NavController) {
     val context = LocalContext.current
+    val dimens = rememberResponsiveDimens()
 
     val settings by AppSettingsStore.settings.collectAsState()
     val uiColors = appUiColors(settings.temaOscuro)
@@ -735,7 +737,7 @@ fun HomeScreen(navController: NavController) {
                 Card(
                     shape = RoundedCornerShape(20.dp),
                     modifier = Modifier
-                        .padding(horizontal = 16.dp)
+                        .padding(horizontal = dimens.horizontalPadding)
                         .fillMaxWidth(),
                     elevation = CardDefaults.cardElevation(6.dp),
                     colors = CardDefaults.cardColors(
@@ -748,7 +750,7 @@ fun HomeScreen(navController: NavController) {
                         GoogleMap(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(250.dp),
+                                .height(dimens.mapHeight),
                             cameraPositionState = cameraPositionState
                         ) {
                             // Mostrar ubicación actual siempre (sin tracking)
@@ -824,7 +826,7 @@ fun HomeScreen(navController: NavController) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
+                                .padding(horizontal = dimens.horizontalPadding),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             StatItem(
@@ -1002,6 +1004,7 @@ fun HomeTopBar(
     navController: NavController,
     temaOscuro: Boolean
 ) {
+    val dimens = rememberResponsiveDimens()
     val gradient = if (temaOscuro) {
         Brush.horizontalGradient(
             listOf(
@@ -1021,9 +1024,10 @@ fun HomeTopBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(60.dp)
             .background(gradient)
-            .padding(16.dp)
+            .statusBarsPadding()
+            .height(dimens.topBarHeight)
+            .padding(horizontal = dimens.horizontalPadding, vertical = 8.dp)
     ) {
         var expanded by remember { mutableStateOf(false) }
 
@@ -1063,16 +1067,20 @@ fun HomeTopBar(
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.weight(1f)
+            ) {
                 Image(
                     painter = painterResource(id = R.drawable.logo_alyra),
                     contentDescription = "ALYRA logo",
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(dimens.topBarLogoSize)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "ALYRA",
-                    fontSize = 18.sp,
+                    fontSize = dimens.topBarFontSize,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
@@ -1107,6 +1115,7 @@ fun ResumenEntrenamientoSection(
     mostrarIA: Boolean,
     uiColors: AppUiColors
 ) {
+    val dimens = rememberResponsiveDimens()
     val bpmNumero = bpmTexto.toIntOrNull() ?: 0
     val aceleracionNumero = aceleracionTexto.toFloatOrNull() ?: 0f
 
@@ -1138,7 +1147,7 @@ fun ResumenEntrenamientoSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = dimens.horizontalPadding)
     ) {
         ModernCard(
             title = "Resumen en tiempo real",
@@ -1355,6 +1364,7 @@ fun MiniStatCard(
     value: String,
     uiColors: AppUiColors
 ) {
+    val dimens = rememberResponsiveDimens()
     Box(
         modifier = modifier
             .background(
@@ -1371,7 +1381,7 @@ fun MiniStatCard(
         Column {
             Text(
                 text = label,
-                fontSize = 12.sp,
+                fontSize = dimens.statLabelSize,
                 color = uiColors.textMuted
             )
 
@@ -1379,7 +1389,7 @@ fun MiniStatCard(
 
             Text(
                 text = value,
-                fontSize = 17.sp,
+                fontSize = dimens.statValueSize,
                 fontWeight = FontWeight.Bold,
                 color = uiColors.textPrimary
             )
