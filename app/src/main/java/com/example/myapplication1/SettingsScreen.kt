@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -75,6 +77,7 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .statusBarsPadding()
                 .padding(horizontal = 14.dp)
                 .padding(top = 10.dp, bottom = 24.dp)
         ) {
@@ -161,6 +164,8 @@ fun SettingsScreen(
                 SettingText("Módulos", "Home, IA, Agenda y Wear OS", uiColors)
             }
 
+            Spacer(modifier = Modifier.height(8.dp))
+
             Button(
                 onClick = { cerrarSesion() },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -168,7 +173,7 @@ fun SettingsScreen(
                 colors = ButtonDefaults.buttonColors(containerColor = uiColors.dangerButton, contentColor = Color.White)
             ) { Text("Cerrar sesión", fontWeight = FontWeight.Bold) }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.navigationBarsPadding().height(24.dp))
         }
     }
 }
@@ -292,7 +297,8 @@ fun SensorStatusRow(label: String, value: String, activo: Boolean, uiColors: App
 }
 
 fun limpiarSesionLocal(context: Context) {
-    listOf("session", "user_session", "UserPrefs", "user_prefs", "app_prefs").forEach { nombre ->
+    listOf("session", "app_prefs").forEach { nombre ->
         context.getSharedPreferences(nombre, Context.MODE_PRIVATE).edit().clear().apply()
     }
+    SessionManager(context).logout()
 }

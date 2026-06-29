@@ -25,7 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -564,7 +564,7 @@ fun AgendaScreen(navController: NavController) {
             NavigationBarItem(
                 selected = false,
                 onClick = { navController.navigate("IA") },
-                icon = { Icon(Icons.Default.SmartToy, contentDescription = null) },
+                icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
                 label = { Text("IA") },
                 colors = agendaBottomItemColors(uiColors)
             )

@@ -32,7 +32,7 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -983,7 +983,7 @@ fun HomeScreen(navController: NavController) {
             NavigationBarItem(
                 selected = false,
                 onClick = { navController.navigate("IA") },
-                icon = { Icon(Icons.Default.SmartToy, contentDescription = null) },
+                icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
                 label = { Text("IA") },
                 colors = bottomItemColors(uiColors)
             )
