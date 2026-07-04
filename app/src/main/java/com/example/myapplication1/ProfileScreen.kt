@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.AlertDialog
@@ -188,7 +189,7 @@ fun ProfileScreen(navController: NavController) {
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "",
+                            text = "✏️",
                             fontSize = 14.sp,
                             modifier = Modifier.clickable { nombreTemporal = displayName; mostrarDialogNombre = true }
                         )
@@ -206,19 +207,19 @@ fun ProfileScreen(navController: NavController) {
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                ProfileOption(text = "Editar nombre", icon = "", uiColors = uiColors, onClick = {
+                ProfileOption(text = "Editar nombre", icon = "✏️", uiColors = uiColors, onClick = {
                     nombreTemporal = displayName
                     mostrarDialogNombre = true
                 })
-                ProfileOption(text = "Cambiar foto", icon = "", uiColors = uiColors, onClick = {
+                ProfileOption(text = "Cambiar foto", icon = "📷", uiColors = uiColors, onClick = {
                     galeria.launch("image/*")
                 })
-                ProfileOption(text = "Configuración", icon = "", uiColors = uiColors, onClick = {
+                ProfileOption(text = "Configuración", icon = "⚙️", uiColors = uiColors, onClick = {
                     navController.navigate("settings")
                 })
                 ProfileOption(
                     text = "Cerrar sesión",
-                    icon = "",
+                    icon = "🚪",
                     uiColors = uiColors,
                     textColor = uiColors.dangerButton,
                     onClick = {
@@ -236,6 +237,7 @@ fun ProfileScreen(navController: NavController) {
         ) {
             NavigationBarItem(selected = false, onClick = { navController.navigate("home") }, icon = { Icon(Icons.Default.Home, contentDescription = null) }, label = { Text("Home") }, colors = bottomItemColors(uiColors))
             NavigationBarItem(selected = false, onClick = { navController.navigate("IA") }, icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) }, label = { Text("IA") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.navigate("camera") }, icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) }, label = { Text("Comida") }, colors = bottomItemColors(uiColors))
             NavigationBarItem(selected = false, onClick = { navController.navigate("agenda") }, icon = { Icon(Icons.Default.DateRange, contentDescription = null) }, label = { Text("Agenda") }, colors = bottomItemColors(uiColors))
         }
     }

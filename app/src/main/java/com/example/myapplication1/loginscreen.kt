@@ -5,7 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
-
+import androidx.compose.foundation.layout.width
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fingerprint
@@ -105,11 +106,11 @@ fun AuthScreen(
             .fillMaxSize()
             .background(
                 if (settings.temaOscuro)
-                    Brush.verticalGradient(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
                         listOf(Color(0xFF0D2E2C), Color(0xFF0D1F1E))
                     )
                 else
-                    Brush.verticalGradient(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
                         listOf(TealPrimary, TealSurface)
                     )
             )
@@ -122,11 +123,19 @@ fun AuthScreen(
         ) {
             Spacer(modifier = Modifier.height(40.dp))
 
-            Image(
-                painter = painterResource(id = R.drawable.logo_alyra),
-                contentDescription = "ALYRA logo",
-                modifier = Modifier.size(100.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(100.dp)
+                    .background(Color.White, CircleShape)
+                    .padding(6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.logo_alyra),
+                    contentDescription = "ALYRA logo",
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
 

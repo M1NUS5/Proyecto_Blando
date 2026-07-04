@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -566,6 +567,14 @@ fun AgendaScreen(navController: NavController) {
                 onClick = { navController.navigate("IA") },
                 icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
                 label = { Text("IA") },
+                colors = agendaBottomItemColors(uiColors)
+            )
+
+            NavigationBarItem(
+                selected = false,
+                onClick = { navController.navigate("camera") },
+                icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
+                label = { Text("Comida") },
                 colors = agendaBottomItemColors(uiColors)
             )
 

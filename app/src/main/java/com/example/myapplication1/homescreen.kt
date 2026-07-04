@@ -25,20 +25,20 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
@@ -972,29 +972,10 @@ fun HomeScreen(navController: NavController) {
             containerColor = uiColors.bottomBar,
             contentColor = uiColors.bottomUnselected
         ) {
-            NavigationBarItem(
-                selected = true,
-                onClick = { navController.navigate("home") },
-                icon = { Icon(Icons.Default.Home, contentDescription = null) },
-                label = { Text("Home") },
-                colors = bottomItemColors(uiColors)
-            )
-
-            NavigationBarItem(
-                selected = false,
-                onClick = { navController.navigate("IA") },
-                icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
-                label = { Text("IA") },
-                colors = bottomItemColors(uiColors)
-            )
-
-            NavigationBarItem(
-                selected = false,
-                onClick = { navController.navigate("agenda") },
-                icon = { Icon(Icons.Default.DateRange, contentDescription = null) },
-                label = { Text("Agenda") },
-                colors = bottomItemColors(uiColors)
-            )
+            NavigationBarItem(selected = true, onClick = { navController.navigate("home") }, icon = { Icon(Icons.Default.Home, contentDescription = null) }, label = { Text("Home") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.navigate("IA") }, icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) }, label = { Text("IA") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.navigate("camera") }, icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) }, label = { Text("Comida") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.navigate("agenda") }, icon = { Icon(Icons.Default.DateRange, contentDescription = null) }, label = { Text("Agenda") }, colors = bottomItemColors(uiColors))
         }
     }
 }
@@ -1015,8 +996,8 @@ fun HomeTopBar(
     } else {
         Brush.horizontalGradient(
             listOf(
-                Color(0xFF26A69A),
-                Color(0xFF4DB6AC)
+                Color(0xFF00695C),
+                Color(0xFF00897B)
             )
         )
     }
@@ -1029,42 +1010,17 @@ fun HomeTopBar(
             .height(dimens.topBarHeight)
             .padding(horizontal = dimens.horizontalPadding, vertical = 8.dp)
     ) {
-        var expanded by remember { mutableStateOf(false) }
-
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box {
-                IconButton(onClick = { expanded = true }) {
-                    Icon(
-                        Icons.Default.Menu,
-                        contentDescription = null,
-                        tint = Color.White
-                    )
-                }
-
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Perfil") },
-                        onClick = {
-                            expanded = false
-                            navController.navigate("profile")
-                        }
-                    )
-
-                    DropdownMenuItem(
-                        text = { Text("Configuración") },
-                        onClick = {
-                            expanded = false
-                            navController.navigate("settings")
-                        }
-                    )
-                }
+            IconButton(onClick = { navController.navigate("settings") }) {
+                Icon(
+                    Icons.Default.Settings,
+                    contentDescription = "Configuración",
+                    tint = Color.White
+                )
             }
 
             Row(
@@ -1072,11 +1028,18 @@ fun HomeTopBar(
                 horizontalArrangement = Arrangement.Center,
                 modifier = Modifier.weight(1f)
             ) {
-                Image(
-                    painter = painterResource(id = R.drawable.logo_alyra),
-                    contentDescription = "ALYRA logo",
-                    modifier = Modifier.size(dimens.topBarLogoSize)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(dimens.topBarLogoSize)
+                        .background(Color.White, CircleShape)
+                        .padding(3.dp)
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.logo_alyra),
+                        contentDescription = "ALYRA logo",
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "ALYRA",
@@ -1086,9 +1049,7 @@ fun HomeTopBar(
                 )
             }
 
-            IconButton(
-                onClick = { navController.navigate("profile") }
-            ) {
+            IconButton(onClick = { navController.navigate("profile") }) {
                 Icon(
                     Icons.Default.AccountCircle,
                     contentDescription = null,

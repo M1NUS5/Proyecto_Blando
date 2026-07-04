@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -442,6 +443,14 @@ fun IAScreen(navController: NavController) {
                 onClick = { },
                 icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
                 label = { Text("IA") },
+                colors = iaBottomItemColors(uiColors)
+            )
+
+            NavigationBarItem(
+                selected = false,
+                onClick = { navController.navigate("camera") },
+                icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
+                label = { Text("Comida") },
                 colors = iaBottomItemColors(uiColors)
             )
 

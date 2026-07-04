@@ -67,6 +67,10 @@ fun Navegacion(onThemeChange: (Boolean) -> Unit) {
             AgendaScreen(navController)
         }
 
+        composable("camera") {
+            CameraScreen(navController)
+        }
+
         composable("settings") {
             SettingsScreen(
                 navController = navController,
