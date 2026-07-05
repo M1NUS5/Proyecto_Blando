@@ -5,7 +5,6 @@ import android.net.Uri
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -27,19 +26,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
-import java.net.HttpURLConnection
-import java.net.URL
 
 private val TealPrimary = Color(0xFF26A69A)
 private val TealMedium  = Color(0xFF4DB6AC)
@@ -50,32 +42,14 @@ fun CameraScreen(navController: NavController) {
     val settings by AppSettingsStore.settings.collectAsState()
     val uiColors = appUiColors(settings.temaOscuro)
     val dimens = rememberResponsiveDimens()
-    val scope = rememberCoroutineScope()
 
     var imageUri by remember { mutableStateOf<Uri?>(null) }
-    var imageBase64 by remember { mutableStateOf<String?>(null) }
-    var imageMediaType by remember { mutableStateOf("image/jpeg") }
-    var resultado by remember { mutableStateOf<String?>(null) }
-    var cargando by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
 
     val galeriaLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
             imageUri = uri
-            resultado = null
-            error = null
-            val stream: InputStream? = context.contentResolver.openInputStream(uri)
-            val originalBytes = stream?.readBytes()
-            stream?.close()
-            if (originalBytes != null) {
-                val bitmap = BitmapFactory.decodeByteArray(originalBytes, 0, originalBytes.size)
-                val scaled = android.graphics.Bitmap.createScaledBitmap(bitmap, 800, 800, true)
-                val compressed = ByteArrayOutputStream()
-                scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, compressed)
-                imageBase64 = Base64.encodeToString(compressed.toByteArray(), Base64.NO_WRAP)
-            }
         }
     }
 
@@ -83,96 +57,12 @@ fun CameraScreen(navController: NavController) {
         contract = ActivityResultContracts.TakePicturePreview()
     ) { bitmap ->
         if (bitmap != null) {
-            resultado = null
-            error = null
             val stream = ByteArrayOutputStream()
-            val scaled = android.graphics.Bitmap.createScaledBitmap(bitmap, 800, 800, true)
-            scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, stream)
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, stream)
             val bytes = stream.toByteArray()
-            imageBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
             val tmpFile = java.io.File(context.cacheDir, "foto_comida.jpg")
             tmpFile.writeBytes(bytes)
             imageUri = Uri.fromFile(tmpFile)
-        }
-    }
-
-    fun analizarImagen() {
-        val base64 = imageBase64 ?: return
-        cargando = true
-        error = null
-        resultado = null
-
-        scope.launch {
-            try {
-                val respuesta = withContext(Dispatchers.IO) {
-                    val url = URL("https://api.anthropic.com/v1/messages")
-                    val conn = url.openConnection() as HttpURLConnection
-                    conn.requestMethod = "POST"
-                    conn.setRequestProperty("Content-Type", "application/json")
-                    conn.setRequestProperty("x-api-key", BuildConfig.ANTHROPIC_API_KEY)
-                    conn.setRequestProperty("anthropic-version", "2023-06-01")
-                    conn.doOutput = true
-
-                    val body = JSONObject().apply {
-                        put("model", "claude-haiku-4-5-20251001")
-                        put("max_tokens", 1024)
-                        put("messages", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("role", "user")
-                                put("content", JSONArray().apply {
-                                    put(JSONObject().apply {
-                                        put("type", "image")
-                                        put("source", JSONObject().apply {
-                                            put("type", "base64")
-                                            put("media_type", "image/jpeg")
-                                            put("data", base64)
-                                        })
-                                    })
-                                    put(JSONObject().apply {
-                                        put("type", "text")
-                                        put("text", "Analiza esta imagen de comida y proporciona una estimación nutricional. Responde SOLO en este formato exacto:\n\nALIMENTO: [nombre del alimento o platillo]\nCALORÍAS: [número] kcal\nPROTEÍNAS: [número] g\nCARBOHIDRATOS: [número] g\nGRASAS: [número] g\nNOTA: [observación breve en una línea]\n\nSi no puedes identificar comida en la imagen, responde solo: NO_COMIDA")
-                                    })
-                                })
-                            })
-                        })
-                    }
-
-                    conn.outputStream.write(body.toString().toByteArray())
-                    conn.outputStream.flush()
-
-                    val code = conn.responseCode
-                    val stream = if (code == 200) conn.inputStream else conn.errorStream
-                    val response = stream.bufferedReader().readText()
-                    stream.close()
-                    response
-                }
-
-                val json = JSONObject(respuesta)
-
-                if (json.has("error")) {
-                    val errorMsg = json.getJSONObject("error").optString("message", "Error desconocido")
-                    throw Exception("API error: $errorMsg")
-                }
-
-                if (!json.has("content")) {
-                    throw Exception("Respuesta inesperada: $respuesta")
-                }
-
-                val texto = json.getJSONArray("content")
-                    .getJSONObject(0)
-                    .getString("text")
-                    .trim()
-
-                if (texto == "NO_COMIDA") {
-                    error = "No se detectó comida en la imagen. Intenta con otra foto."
-                } else {
-                    resultado = texto
-                }
-            } catch (e: Exception) {
-                error = "Error al analizar: ${e.message}"
-            } finally {
-                cargando = false
-            }
         }
     }
 
@@ -273,89 +163,38 @@ fun CameraScreen(navController: NavController) {
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            Button(
-                onClick = { analizarImagen() },
-                enabled = imageUri != null && !cargando,
-                modifier = Modifier.fillMaxWidth().height(dimens.buttonHeight),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = TealPrimary,
-                    contentColor = Color.White,
-                    disabledContainerColor = uiColors.border
-                )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(TealPrimary.copy(alpha = 0.10f), RoundedCornerShape(20.dp))
+                    .border(1.5.dp, TealPrimary.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.AutoAwesome, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (cargando) "Analizando..." else "Analizar con IA",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = dimens.buttonFontSize
-                )
-            }
-
-            if (cargando) {
-                Spacer(modifier = Modifier.height(20.dp))
-                CircularProgressIndicator(color = TealPrimary)
-            }
-
-            error?.let {
-                Spacer(modifier = Modifier.height(16.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(uiColors.dangerButton.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
-                        .padding(14.dp)
-                ) {
-                    Text(text = it, color = uiColors.dangerButton, fontSize = dimens.bodyFontSize)
-                }
-            }
-
-            resultado?.let { res ->
-                Spacer(modifier = Modifier.height(20.dp))
-
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(uiColors.card, RoundedCornerShape(20.dp))
-                        .border(1.dp, TealPrimary, RoundedCornerShape(20.dp))
-                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    Icon(
+                        Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = TealPrimary,
+                        modifier = Modifier.size(36.dp)
+                    )
                     Text(
-                        text = "Resultado nutricional",
+                        text = "IA en desarrollo",
                         fontSize = dimens.titleFontSize,
                         fontWeight = FontWeight.Bold,
                         color = TealPrimary
                     )
-
-                    res.lines().forEach { linea ->
-                        if (linea.isNotBlank()) {
-                            val partes = linea.split(":", limit = 2)
-                            if (partes.size == 2) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = partes[0].trim(),
-                                        fontSize = dimens.bodyFontSize,
-                                        fontWeight = FontWeight.Bold,
-                                        color = uiColors.textPrimary,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Text(
-                                        text = partes[1].trim(),
-                                        fontSize = dimens.bodyFontSize,
-                                        color = TealMedium,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                                HorizontalDivider(color = uiColors.border, thickness = 0.5.dp)
-                            }
-                        }
-                    }
+                    Text(
+                        text = "El análisis nutricional por IA estará disponible próximamente. Un modelo personalizado calculará calorías, proteínas, carbohidratos y grasas de tus comidas.",
+                        fontSize = dimens.bodyFontSize,
+                        color = uiColors.textSecondary,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         }
