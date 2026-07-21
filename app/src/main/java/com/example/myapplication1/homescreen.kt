@@ -465,6 +465,7 @@ fun HomeScreen(navController: NavController) {
 
         if (pathPoints.size >= 2) {
             finishedPathPoints = pathPoints
+            RunDataStore.finishedPathPoints = pathPoints
         }
 
         RunDataStore.finalizarEntrenamiento()
@@ -477,10 +478,9 @@ fun HomeScreen(navController: NavController) {
             RunDataStore.lastSteps = datosReloj.pasos
             RunDataStore.lastCadence = finalCadence.toFloat()
             RunDataStore.lastAcceleration = finalAcceleration
-            RunDataStore.hasFinishedRun = true
-        } else {
-            RunDataStore.hasFinishedRun = false
         }
+
+        RunDataStore.hasFinishedRun = pathPoints.size >= 2
 
         RunDataStore.currentPace = finalPace.toFloat()
         RunDataStore.currentTime = finalTimeSeconds.toFloat()
