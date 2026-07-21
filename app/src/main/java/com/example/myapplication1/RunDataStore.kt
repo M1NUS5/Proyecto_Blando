@@ -4,6 +4,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
+import com.google.android.gms.maps.model.LatLng
+
 object RunDataStore {
 
     var currentPace by mutableStateOf(0f)
@@ -21,6 +23,7 @@ object RunDataStore {
 
     var hasFinishedRun by mutableStateOf(false)
     var isTracking by mutableStateOf(false)
+    var finishedPathPoints by mutableStateOf(emptyList<LatLng>())
 
     var estadoEntrenamiento by mutableStateOf("EN_ESPERA")
 
@@ -40,6 +43,7 @@ object RunDataStore {
         accumulatedTimeMs = 0L
 
         phoneDistanceMeters = 0.0
+        finishedPathPoints = emptyList()
 
         currentPace = 0f
         currentTime = 0f

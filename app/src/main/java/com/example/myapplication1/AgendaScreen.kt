@@ -11,7 +11,10 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -22,7 +25,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -63,6 +67,7 @@ import java.util.Locale
 fun AgendaScreen(navController: NavController) {
 
     val context = LocalContext.current
+    val dimens = rememberResponsiveDimens()
 
     val settings by AppSettingsStore.settings.collectAsState()
     val uiColors = appUiColors(settings.temaOscuro)
@@ -224,7 +229,9 @@ fun AgendaScreen(navController: NavController) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp)
-                .padding(top = 14.dp, bottom = 95.dp),
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(top = 14.dp, bottom = 80.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
 
@@ -477,7 +484,7 @@ fun AgendaScreen(navController: NavController) {
                     onClick = { cargarActividades() },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp),
+                        .height(dimens.buttonHeight),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = uiColors.primaryButton,
@@ -558,8 +565,16 @@ fun AgendaScreen(navController: NavController) {
             NavigationBarItem(
                 selected = false,
                 onClick = { navController.navigate("IA") },
-                icon = { Icon(Icons.Default.SmartToy, contentDescription = null) },
+                icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
                 label = { Text("IA") },
+                colors = agendaBottomItemColors(uiColors)
+            )
+
+            NavigationBarItem(
+                selected = false,
+                onClick = { navController.navigate("camera") },
+                icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
+                label = { Text("Comida") },
                 colors = agendaBottomItemColors(uiColors)
             )
 
@@ -583,14 +598,15 @@ fun CalendarMonthView(
     uiColors: AppUiColors,
     onDateSelected: (String) -> Unit
 ) {
+    val dimens = rememberResponsiveDimens()
     val diasSemana = listOf("L", "M", "M", "J", "V", "S", "D")
     val diasDelMes = obtenerDiasDelMes(mes, anio)
     val espaciosIniciales = obtenerEspaciosInicialesCalendario(mes, anio)
 
-    Column {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             diasSemana.forEach { dia ->
                 Box(
@@ -599,7 +615,7 @@ fun CalendarMonthView(
                 ) {
                     Text(
                         text = dia,
-                        fontSize = 13.sp,
+                        fontSize = dimens.calendarDayFont,
                         fontWeight = FontWeight.Bold,
                         color = uiColors.textMuted
                     )
@@ -607,7 +623,7 @@ fun CalendarMonthView(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         val totalCeldas = espaciosIniciales + diasDelMes
         val filas = (totalCeldas + 6) / 7
@@ -615,7 +631,7 @@ fun CalendarMonthView(
         repeat(filas) { fila ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 repeat(7) { columna ->
                     val index = fila * 7 + columna
@@ -632,13 +648,13 @@ fun CalendarMonthView(
                             hasActivity = tieneActividad,
                             uiColors = uiColors,
                             onClick = { onDateSelected(fecha) },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f).aspectRatio(1f)
                         )
                     } else {
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(48.dp)
+                                .aspectRatio(1f)
                         )
                     }
                 }
@@ -658,6 +674,7 @@ fun DayCell(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val dimens = rememberResponsiveDimens()
     val background = when {
         selected -> uiColors.primaryButton
         hasActivity -> uiColors.primaryButton.copy(alpha = 0.18f)
@@ -672,11 +689,10 @@ fun DayCell(
 
     Box(
         modifier = modifier
-            .height(48.dp)
-            .padding(3.dp)
+            .padding(2.dp)
             .background(
                 color = background,
-                shape = RoundedCornerShape(14.dp)
+                shape = RoundedCornerShape(8.dp)
             )
             .border(
                 width = 1.dp,
@@ -685,7 +701,7 @@ fun DayCell(
                 } else {
                     uiColors.border
                 },
-                shape = RoundedCornerShape(14.dp)
+                shape = RoundedCornerShape(8.dp)
             )
             .clickable { onClick() },
         contentAlignment = Alignment.Center
@@ -693,7 +709,7 @@ fun DayCell(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = day.toString(),
-                fontSize = 15.sp,
+                fontSize = dimens.calendarDayFont,
                 fontWeight = FontWeight.Bold,
                 color = textColor
             )
@@ -703,7 +719,7 @@ fun DayCell(
 
                 Box(
                     modifier = Modifier
-                        .size(5.dp)
+                        .size(4.dp)
                         .background(
                             color = if (selected) uiColors.primaryButtonText else uiColors.primaryButton,
                             shape = CircleShape

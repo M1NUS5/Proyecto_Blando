@@ -9,7 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,21 +21,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
@@ -70,6 +73,7 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.LatLngBounds
 import com.google.android.gms.wearable.DataEvent
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.Wearable
@@ -89,6 +93,7 @@ import java.util.Locale
 @Composable
 fun HomeScreen(navController: NavController) {
     val context = LocalContext.current
+    val dimens = rememberResponsiveDimens()
 
     val settings by AppSettingsStore.settings.collectAsState()
     val uiColors = appUiColors(settings.temaOscuro)
@@ -99,7 +104,14 @@ fun HomeScreen(navController: NavController) {
     val estadoEntrenamiento = RunDataStore.estadoEntrenamiento
 
     var pathPoints by remember { mutableStateOf(emptyList<LatLng>()) }
+    var finishedPathPoints by remember { mutableStateOf(emptyList<LatLng>()) }
     var ultimaUbicacionTelefono by remember { mutableStateOf<Location?>(null) }
+    var currentLocation by remember { mutableStateOf<LatLng?>(null) }
+
+    val juarez = LatLng(31.6904, -106.4245)
+    val cameraPositionState = rememberCameraPositionState {
+        position = CameraPosition.fromLatLngZoom(juarez, 15f)
+    }
 
     var ultimoComandoProcesado by remember { mutableLongStateOf(0L) }
 
@@ -116,11 +128,31 @@ fun HomeScreen(navController: NavController) {
         LocationServices.getFusedLocationProviderClient(context)
     }
 
-    val juarez = LatLng(31.6904, -106.4245)
-
-    val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(juarez, 15f)
+    LaunchedEffect(Unit) {
+        if (
+            ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            fusedLocationClient.lastLocation
+                .addOnSuccessListener { location ->
+                    location?.let {
+                        val userPosition = LatLng(
+                            it.latitude,
+                            it.longitude
+                        )
+                        currentLocation = userPosition
+                        cameraPositionState.position =
+                            CameraPosition.fromLatLngZoom(
+                                userPosition,
+                                17f
+                            )
+                    }
+                }
+        }
     }
+
 
     val locationRequest = remember {
         LocationRequest.Builder(
@@ -249,6 +281,7 @@ fun HomeScreen(navController: NavController) {
         }
 
         pathPoints = emptyList()
+        finishedPathPoints = emptyList()
         ultimaUbicacionTelefono = null
         aceleracionFiltrada = 0f
 
@@ -430,6 +463,11 @@ fun HomeScreen(navController: NavController) {
             pace = finalPace
         )
 
+        if (pathPoints.size >= 2) {
+            finishedPathPoints = pathPoints
+            RunDataStore.finishedPathPoints = pathPoints
+        }
+
         RunDataStore.finalizarEntrenamiento()
 
         if (settings.guardarUltimaCorrida && settings.prediccionIAActiva) {
@@ -440,10 +478,9 @@ fun HomeScreen(navController: NavController) {
             RunDataStore.lastSteps = datosReloj.pasos
             RunDataStore.lastCadence = finalCadence.toFloat()
             RunDataStore.lastAcceleration = finalAcceleration
-            RunDataStore.hasFinishedRun = true
-        } else {
-            RunDataStore.hasFinishedRun = false
         }
+
+        RunDataStore.hasFinishedRun = pathPoints.size >= 2
 
         RunDataStore.currentPace = finalPace.toFloat()
         RunDataStore.currentTime = finalTimeSeconds.toFloat()
@@ -577,6 +614,29 @@ fun HomeScreen(navController: NavController) {
         }
     }
 
+    // Zoom al recorrido completo cuando se guarda finishedPathPoints
+    LaunchedEffect(finishedPathPoints) {
+        if (finishedPathPoints.size >= 2) {
+            val boundsBuilder = LatLngBounds.builder()
+            finishedPathPoints.forEach { boundsBuilder.include(it) }
+            val bounds = boundsBuilder.build()
+            val center = bounds.center
+            // Calculamos zoom aproximado para ver todo el recorrido
+            val latDiff = bounds.northeast.latitude - bounds.southwest.latitude
+            val lngDiff = bounds.northeast.longitude - bounds.southwest.longitude
+            val maxDiff = maxOf(latDiff, lngDiff)
+            val zoom = when {
+                maxDiff < 0.002 -> 17f
+                maxDiff < 0.005 -> 16f
+                maxDiff < 0.01  -> 15f
+                maxDiff < 0.03  -> 14f
+                maxDiff < 0.06  -> 13f
+                else            -> 12f
+            }
+            cameraPositionState.position = CameraPosition.fromLatLngZoom(center, zoom)
+        }
+    }
+
     val timeSeconds = RunDataStore.obtenerTiempoActualSegundos()
 
     val distanceKmTelefono = RunDataStore.phoneDistanceMeters / 1000.0
@@ -677,7 +737,7 @@ fun HomeScreen(navController: NavController) {
                 Card(
                     shape = RoundedCornerShape(20.dp),
                     modifier = Modifier
-                        .padding(horizontal = 16.dp)
+                        .padding(horizontal = dimens.horizontalPadding)
                         .fillMaxWidth(),
                     elevation = CardDefaults.cardElevation(6.dp),
                     colors = CardDefaults.cardColors(
@@ -690,19 +750,50 @@ fun HomeScreen(navController: NavController) {
                         GoogleMap(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(250.dp),
+                                .height(dimens.mapHeight),
                             cameraPositionState = cameraPositionState
                         ) {
+                            // Mostrar ubicación actual siempre (sin tracking)
+                            if (pathPoints.isEmpty() && finishedPathPoints.isEmpty()) {
+                                currentLocation?.let {
+                                    Marker(
+                                        state = MarkerState(position = it),
+                                        title = "Mi ubicación"
+                                    )
+                                }
+                            }
+
+                            // Recorrido en tiempo real durante el tracking
                             if (pathPoints.isNotEmpty()) {
                                 Polyline(
                                     points = pathPoints,
                                     width = 10f,
-                                    color = Color(0xFF7E57C2)
+                                    color = Color(0xFF26A69A)
                                 )
-
+                                Marker(
+                                    state = MarkerState(position = pathPoints.first()),
+                                    title = "Inicio"
+                                )
                                 Marker(
                                     state = MarkerState(position = pathPoints.last()),
                                     title = "Tú"
+                                )
+                            }
+
+                            // Recorrido finalizado: mostrar inicio y fin
+                            if (finishedPathPoints.size >= 2) {
+                                Polyline(
+                                    points = finishedPathPoints,
+                                    width = 10f,
+                                    color = Color(0xFF26A69A)
+                                )
+                                Marker(
+                                    state = MarkerState(position = finishedPathPoints.first()),
+                                    title = "Inicio"
+                                )
+                                Marker(
+                                    state = MarkerState(position = finishedPathPoints.last()),
+                                    title = "Fin"
                                 )
                             }
                         }
@@ -735,7 +826,7 @@ fun HomeScreen(navController: NavController) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
+                                .padding(horizontal = dimens.horizontalPadding),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             StatItem(
@@ -881,29 +972,10 @@ fun HomeScreen(navController: NavController) {
             containerColor = uiColors.bottomBar,
             contentColor = uiColors.bottomUnselected
         ) {
-            NavigationBarItem(
-                selected = true,
-                onClick = { navController.navigate("home") },
-                icon = { Icon(Icons.Default.Home, contentDescription = null) },
-                label = { Text("Home") },
-                colors = bottomItemColors(uiColors)
-            )
-
-            NavigationBarItem(
-                selected = false,
-                onClick = { navController.navigate("IA") },
-                icon = { Icon(Icons.Default.SmartToy, contentDescription = null) },
-                label = { Text("IA") },
-                colors = bottomItemColors(uiColors)
-            )
-
-            NavigationBarItem(
-                selected = false,
-                onClick = { navController.navigate("agenda") },
-                icon = { Icon(Icons.Default.DateRange, contentDescription = null) },
-                label = { Text("Agenda") },
-                colors = bottomItemColors(uiColors)
-            )
+            NavigationBarItem(selected = true, onClick = { navController.navigate("home") }, icon = { Icon(Icons.Default.Home, contentDescription = null) }, label = { Text("Home") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.navigate("IA") }, icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) }, label = { Text("IA") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.navigate("camera") }, icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) }, label = { Text("Comida") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.navigate("agenda") }, icon = { Icon(Icons.Default.DateRange, contentDescription = null) }, label = { Text("Agenda") }, colors = bottomItemColors(uiColors))
         }
     }
 }
@@ -913,18 +985,19 @@ fun HomeTopBar(
     navController: NavController,
     temaOscuro: Boolean
 ) {
+    val dimens = rememberResponsiveDimens()
     val gradient = if (temaOscuro) {
         Brush.horizontalGradient(
             listOf(
-                Color(0xFF121826),
-                Color(0xFF243B55)
+                Color(0xFF0D1F1E),
+                Color(0xFF26A69A)
             )
         )
     } else {
         Brush.horizontalGradient(
             listOf(
-                Color(0xFF7E57C2),
-                Color(0xFFB39DDB)
+                Color(0xFF00695C),
+                Color(0xFF00897B)
             )
         )
     }
@@ -932,51 +1005,51 @@ fun HomeTopBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(60.dp)
             .background(gradient)
-            .padding(16.dp)
+            .statusBarsPadding()
+            .height(dimens.topBarHeight)
+            .padding(horizontal = dimens.horizontalPadding, vertical = 8.dp)
     ) {
-        var expanded by remember { mutableStateOf(false) }
-
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box {
-                IconButton(onClick = { expanded = true }) {
-                    Icon(
-                        Icons.Default.Menu,
-                        contentDescription = null,
-                        tint = Color.White
-                    )
-                }
-
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Perfil") },
-                        onClick = {
-                            expanded = false
-                            navController.navigate("profile")
-                        }
-                    )
-
-                    DropdownMenuItem(
-                        text = { Text("Configuración") },
-                        onClick = {
-                            expanded = false
-                            navController.navigate("settings")
-                        }
-                    )
-                }
+            IconButton(onClick = { navController.navigate("settings") }) {
+                Icon(
+                    Icons.Default.Settings,
+                    contentDescription = "Configuración",
+                    tint = Color.White
+                )
             }
 
-            IconButton(
-                onClick = { navController.navigate("profile") }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.weight(1f)
             ) {
+                Box(
+                    modifier = Modifier
+                        .size(dimens.topBarLogoSize)
+                        .background(Color.White, CircleShape)
+                        .padding(3.dp)
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.logo_alyra),
+                        contentDescription = "ALYRA logo",
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "ALYRA",
+                    fontSize = dimens.topBarFontSize,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+
+            IconButton(onClick = { navController.navigate("profile") }) {
                 Icon(
                     Icons.Default.AccountCircle,
                     contentDescription = null,
@@ -1003,6 +1076,7 @@ fun ResumenEntrenamientoSection(
     mostrarIA: Boolean,
     uiColors: AppUiColors
 ) {
+    val dimens = rememberResponsiveDimens()
     val bpmNumero = bpmTexto.toIntOrNull() ?: 0
     val aceleracionNumero = aceleracionTexto.toFloatOrNull() ?: 0f
 
@@ -1034,7 +1108,7 @@ fun ResumenEntrenamientoSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = dimens.horizontalPadding)
     ) {
         ModernCard(
             title = "Resumen en tiempo real",
@@ -1251,6 +1325,7 @@ fun MiniStatCard(
     value: String,
     uiColors: AppUiColors
 ) {
+    val dimens = rememberResponsiveDimens()
     Box(
         modifier = modifier
             .background(
@@ -1267,7 +1342,7 @@ fun MiniStatCard(
         Column {
             Text(
                 text = label,
-                fontSize = 12.sp,
+                fontSize = dimens.statLabelSize,
                 color = uiColors.textMuted
             )
 
@@ -1275,7 +1350,7 @@ fun MiniStatCard(
 
             Text(
                 text = value,
-                fontSize = 17.sp,
+                fontSize = dimens.statValueSize,
                 fontWeight = FontWeight.Bold,
                 color = uiColors.textPrimary
             )
@@ -1375,36 +1450,6 @@ fun formatearTiempo(segundos: Long): String {
     return String.format(Locale.US, "%02d:%02d", min, sec)
 }
 
-@Composable
-fun OptionItem(icon: ImageVector, text: String) {
-    val settings by AppSettingsStore.settings.collectAsState()
-    val uiColors = appUiColors(settings.temaOscuro)
-
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            modifier = Modifier
-                .size(60.dp)
-                .background(
-                    uiColors.primaryButton,
-                    shape = RoundedCornerShape(50)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = uiColors.primaryButtonText
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = text,
-            color = uiColors.textPrimary
-        )
-    }
-}
 
 @Composable
 fun StatItem(
@@ -1470,23 +1515,7 @@ fun detectarActividadHome(
         )
     }
 
-    if (cadencia in 1.0..85.0 && bpm < 125) {
-        return ActividadDetectadaHome(
-            estado = "Caminando",
-            consejo = "Movimiento ligero detectado. Ritmo estable de caminata.",
-            intensidad = 1
-        )
-    }
-
-    if (cadencia in 86.0..135.0 || bpm in 125..150) {
-        return ActividadDetectadaHome(
-            estado = "Trotando",
-            consejo = "Ritmo moderado detectado. Mantén la respiración controlada.",
-            intensidad = 2
-        )
-    }
-
-    if (cadencia > 135.0 || bpm > 150) {
+    if (cadencia > 135.0 || bpm > 150 || (pace > 0.0 && pace <= 6.5 && bpm >= 135)) {
         return ActividadDetectadaHome(
             estado = "Corriendo",
             consejo = "Ritmo alto detectado. Controla tu frecuencia cardiaca.",
@@ -1494,19 +1523,20 @@ fun detectarActividadHome(
         )
     }
 
-    if (pace > 0.0 && pace <= 6.5 && bpm >= 135) {
+    // Moderate intensity
+    if (cadencia in 86.0..135.0 || bpm in 125..150 || (pace > 6.5 && pace <= 10.0 && bpm >= 115)) {
         return ActividadDetectadaHome(
-            estado = "Corriendo",
-            consejo = "Pace rápido y BPM elevado. Estás corriendo.",
-            intensidad = 3
+            estado = "Trotando",
+            consejo = "Ritmo moderado detectado. Mantén la respiración controlada.",
+            intensidad = 2
         )
     }
 
-    if (pace > 6.5 && pace <= 10.0 && bpm >= 115) {
+    if (cadencia in 1.0..85.0) {
         return ActividadDetectadaHome(
-            estado = "Trotando",
-            consejo = "Pace moderado. Se detecta trote.",
-            intensidad = 2
+            estado = "Caminando",
+            consejo = "Movimiento ligero detectado. Ritmo estable de caminata.",
+            intensidad = 1
         )
     }
 

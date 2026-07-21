@@ -14,13 +14,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -36,6 +42,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 
+private val TealPrimary = Color(0xFF26A69A)
+private val TealMedium  = Color(0xFF4DB6AC)
+private val TealLight   = Color(0xFF80CBC4)
+
 @Composable
 fun SettingsScreen(
     navController: NavController,
@@ -43,12 +53,11 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
 
-    LaunchedEffect(Unit) {
-        AppSettingsStore.cargar(context)
-    }
+    LaunchedEffect(Unit) { AppSettingsStore.cargar(context) }
 
     val settings by AppSettingsStore.settings.collectAsState()
     val datosReloj by DatosRelojStore.datos.collectAsState()
+    val uiColors = appUiColors(settings.temaOscuro)
 
     val sessionManager = SessionManager(context)
     val userId = sessionManager.getUserId() ?: "No disponible"
@@ -60,405 +69,145 @@ fun SettingsScreen(
 
     fun cerrarSesion() {
         limpiarSesionLocal(context)
-
-        navController.navigate("login") {
-            popUpTo(navController.graph.startDestinationId) {
-                inclusive = true
-            }
-        }
+        navController.navigate("login") { popUpTo(navController.graph.startDestinationId) { inclusive = true } }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                if (settings.temaOscuro) Color(0xFF101010) else Color(0xFFF2F2F2)
-            )
-    ) {
+    Box(modifier = Modifier.fillMaxSize().background(uiColors.background)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .statusBarsPadding()
                 .padding(horizontal = 14.dp)
                 .padding(top = 10.dp, bottom = 24.dp)
         ) {
-            HeaderConfiguracion(
-                titulo = "Configuración",
-                temaOscuro = settings.temaOscuro,
-                onBack = {
-                    navController.popBackStack()
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { navController.popBackStack() }) {
+                    Text("←", fontSize = 24.sp, color = uiColors.textPrimary)
                 }
-            )
+                Text("Configuración", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = uiColors.textPrimary)
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            SettingsCard(
-                title = "Información de la cuenta",
-                emoji = "👤",
-                temaOscuro = settings.temaOscuro
-            ) {
-                SettingText(
-                    label = "ID de usuario",
-                    value = userId,
-                    temaOscuro = settings.temaOscuro
-                )
-
-                SettingText(
-                    label = "Estado de sesión",
-                    value = if (userId != "No disponible") "Sesión activa" else "Sin sesión activa",
-                    temaOscuro = settings.temaOscuro
-                )
+            SettingsCard("👤", "Información de la cuenta", uiColors) {
+                SettingText("ID de usuario", userId, uiColors)
+                SettingText("Estado de sesión", if (userId != "No disponible") "Sesión activa" else "Sin sesión activa", uiColors)
             }
 
-            SettingsCard(
-                title = "Preferencias de entrenamiento",
-                emoji = "🏃",
-                temaOscuro = settings.temaOscuro
-            ) {
-                UnidadPrincipalSelector(
-                    unidadActual = settings.unidadPrincipal,
-                    temaOscuro = settings.temaOscuro,
-                    onUnidadChange = { nuevaUnidad ->
-                        actualizarConfiguracion(
-                            settings.copy(
-                                unidadPrincipal = nuevaUnidad
-                            )
-                        )
-                    }
-                )
-
+            SettingsCard("🏃", "Preferencias de entrenamiento", uiColors) {
+                UnidadPrincipalSelector(settings.unidadPrincipal, uiColors) { nuevaUnidad ->
+                    actualizarConfiguracion(settings.copy(unidadPrincipal = nuevaUnidad))
+                }
                 Spacer(modifier = Modifier.height(8.dp))
-
-                SettingText(
-                    label = "Objetivo sugerido",
-                    value = "Mejorar ritmo de carrera",
-                    temaOscuro = settings.temaOscuro
-                )
-
-                SettingText(
-                    label = "Sincronización",
-                    value = if (datosReloj.timestamp > 0L) {
-                        "Reloj sincronizado"
-                    } else {
-                        "Esperando reloj"
-                    },
-                    temaOscuro = settings.temaOscuro
-                )
+                SettingText("Objetivo sugerido", "Mejorar ritmo de carrera", uiColors)
+                SettingText("Sincronización", if (datosReloj.timestamp > 0L) "Reloj sincronizado" else "Esperando reloj", uiColors)
             }
 
-            SettingsCard(
-                title = "Configuración de IA",
-                emoji = "🤖",
-                temaOscuro = settings.temaOscuro
-            ) {
+            SettingsCard("🤖", "Configuración de IA", uiColors) {
                 SettingSwitch(
                     title = "Predicción automática",
-                    description = if (settings.prediccionIAActiva) {
-                        "La IA analizará entrenamientos finalizados."
-                    } else {
-                        "La IA está apagada en teléfono y reloj."
-                    },
+                    description = if (settings.prediccionIAActiva) "La IA analizará entrenamientos finalizados." else "La IA está apagada en teléfono y reloj.",
                     checked = settings.prediccionIAActiva,
-                    temaOscuro = settings.temaOscuro,
-                    onCheckedChange = { activo ->
-                        actualizarConfiguracion(
-                            settings.copy(
-                                prediccionIAActiva = activo
-                            )
-                        )
-                    }
+                    uiColors = uiColors,
+                    onCheckedChange = { actualizarConfiguracion(settings.copy(prediccionIAActiva = it)) }
                 )
-
                 SettingSwitch(
                     title = "Mostrar probabilidades del modelo",
                     description = "Muestra ritmo bajo, óptimo y alto.",
                     checked = settings.mostrarProbabilidades,
                     enabled = settings.prediccionIAActiva,
-                    temaOscuro = settings.temaOscuro,
-                    onCheckedChange = { activo ->
-                        actualizarConfiguracion(
-                            settings.copy(
-                                mostrarProbabilidades = activo
-                            )
-                        )
-                    }
+                    uiColors = uiColors,
+                    onCheckedChange = { actualizarConfiguracion(settings.copy(mostrarProbabilidades = it)) }
                 )
-
                 SettingSwitch(
                     title = "Guardar última corrida para análisis",
                     description = "La última sesión finalizada se usará para IA.",
                     checked = settings.guardarUltimaCorrida,
                     enabled = settings.prediccionIAActiva,
-                    temaOscuro = settings.temaOscuro,
-                    onCheckedChange = { activo ->
-                        actualizarConfiguracion(
-                            settings.copy(
-                                guardarUltimaCorrida = activo
-                            )
-                        )
-                    }
+                    uiColors = uiColors,
+                    onCheckedChange = { actualizarConfiguracion(settings.copy(guardarUltimaCorrida = it)) }
                 )
             }
 
-            SettingsCard(
-                title = "Apariencia",
-                emoji = "🎨",
-                temaOscuro = settings.temaOscuro
-            ) {
-                TemaSelector(
-                    temaOscuro = settings.temaOscuro,
-                    onTemaChange = { oscuro ->
-                        val nuevaConfig = settings.copy(
-                            temaOscuro = oscuro
-                        )
-
-                        actualizarConfiguracion(nuevaConfig)
-                        onThemeChange(oscuro)
-                    }
-                )
+            SettingsCard("🎨", "Apariencia", uiColors) {
+                TemaSelector(settings.temaOscuro, uiColors) { oscuro ->
+                    actualizarConfiguracion(settings.copy(temaOscuro = oscuro))
+                    onThemeChange(oscuro)
+                }
             }
 
-            SettingsCard(
-                title = "Sensores y datos en tiempo real",
-                emoji = "⌚",
-                temaOscuro = settings.temaOscuro
-            ) {
-                SensorStatusRow(
-                    label = "GPS / Ubicación",
-                    value = if (datosReloj.estadoEntrenamiento == "CORRIENDO") {
-                        "Activo durante entrenamiento"
-                    } else {
-                        "Disponible"
-                    },
-                    activo = true,
-                    temaOscuro = settings.temaOscuro
-                )
-
-                SensorStatusRow(
-                    label = "Tiempo de corrida",
-                    value = "${datosReloj.tiempoSegundos}s",
-                    activo = datosReloj.tiempoSegundos > 0,
-                    temaOscuro = settings.temaOscuro
-                )
-
-                SensorStatusRow(
-                    label = "Ritmo / Pace",
-                    value = if (datosReloj.pace > 0f) {
-                        "%.2f min/km".format(datosReloj.pace)
-                    } else {
-                        "Sin datos"
-                    },
-                    activo = datosReloj.pace > 0f,
-                    temaOscuro = settings.temaOscuro
-                )
-
-                SensorStatusRow(
-                    label = "Frecuencia cardiaca",
-                    value = if (datosReloj.bpm > 0) {
-                        "${datosReloj.bpm} BPM"
-                    } else {
-                        "Esperando BPM"
-                    },
-                    activo = datosReloj.bpm > 0,
-                    temaOscuro = settings.temaOscuro
-                )
-
-                SensorStatusRow(
-                    label = "Pasos",
-                    value = datosReloj.pasos.toString(),
-                    activo = datosReloj.pasos > 0,
-                    temaOscuro = settings.temaOscuro
-                )
-
-                SensorStatusRow(
-                    label = "Aceleración",
-                    value = "%.2f".format(datosReloj.aceleracion),
-                    activo = datosReloj.aceleracion > 0f,
-                    temaOscuro = settings.temaOscuro
-                )
-
-                SensorStatusRow(
-                    label = "Estado IA recibido",
-                    value = datosReloj.estadoIA,
-                    activo = datosReloj.timestamp > 0L,
-                    temaOscuro = settings.temaOscuro
-                )
+            SettingsCard("⌚", "Sensores y datos en tiempo real", uiColors) {
+                SensorStatusRow("GPS / Ubicación", if (datosReloj.estadoEntrenamiento == "CORRIENDO") "Activo durante entrenamiento" else "Disponible", true, uiColors)
+                SensorStatusRow("Tiempo de corrida", "${datosReloj.tiempoSegundos}s", datosReloj.tiempoSegundos > 0, uiColors)
+                SensorStatusRow("Ritmo / Pace", if (datosReloj.pace > 0f) "%.2f min/km".format(datosReloj.pace) else "Sin datos", datosReloj.pace > 0f, uiColors)
+                SensorStatusRow("Frecuencia cardiaca", if (datosReloj.bpm > 0) "${datosReloj.bpm} BPM" else "Esperando BPM", datosReloj.bpm > 0, uiColors)
+                SensorStatusRow("Pasos", datosReloj.pasos.toString(), datosReloj.pasos > 0, uiColors)
+                SensorStatusRow("Aceleración", "%.2f".format(datosReloj.aceleracion), datosReloj.aceleracion > 0f, uiColors)
+                SensorStatusRow("Estado IA recibido", datosReloj.estadoIA, datosReloj.timestamp > 0L, uiColors)
             }
 
-            SettingsCard(
-                title = "Notificaciones y alertas",
-                emoji = "🔔",
-                temaOscuro = settings.temaOscuro
-            ) {
+            SettingsCard("🔔", "Notificaciones y alertas", uiColors) {
                 SettingSwitch(
                     title = "Alertas de ritmo",
                     description = "Avisos cuando el ritmo sea alto o bajo.",
                     checked = settings.alertasRitmo,
-                    temaOscuro = settings.temaOscuro,
-                    onCheckedChange = { activo ->
-                        actualizarConfiguracion(
-                            settings.copy(
-                                alertasRitmo = activo
-                            )
-                        )
-                    }
+                    uiColors = uiColors,
+                    onCheckedChange = { actualizarConfiguracion(settings.copy(alertasRitmo = it)) }
                 )
             }
 
-            SettingsCard(
-                title = "Acerca de la app",
-                emoji = "ℹ️",
-                temaOscuro = settings.temaOscuro
-            ) {
-                SettingText(
-                    label = "Nombre",
-                    value = "Entrenador Inteligente de Ritmo",
-                    temaOscuro = settings.temaOscuro
-                )
-
-                SettingText(
-                    label = "Versión",
-                    value = "1.0",
-                    temaOscuro = settings.temaOscuro
-                )
-
-                SettingText(
-                    label = "Propósito",
-                    value = "Monitorear entrenamientos y analizarlos con IA.",
-                    temaOscuro = settings.temaOscuro
-                )
-
-                SettingText(
-                    label = "Módulos",
-                    value = "Home, IA, Agenda y Wear OS",
-                    temaOscuro = settings.temaOscuro
-                )
+            SettingsCard("ℹ️", "Acerca de la app", uiColors) {
+                SettingText("Nombre", "ALYRA - Entrenador Inteligente de Ritmo", uiColors)
+                SettingText("Versión", "1.0", uiColors)
+                SettingText("Propósito", "Monitorear entrenamientos y analizarlos con IA.", uiColors)
+                SettingText("Módulos", "Home, IA, Agenda y Wear OS", uiColors)
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             Button(
-                onClick = {
-                    cerrarSesion()
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
+                onClick = { cerrarSesion() },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF2F6FA3),
-                    contentColor = Color.White
-                )
-            ) {
-                Text(
-                    text = "Cerrar sesión",
-                    fontWeight = FontWeight.Bold
-                )
-            }
+                colors = ButtonDefaults.buttonColors(containerColor = uiColors.dangerButton, contentColor = Color.White)
+            ) { Text("Cerrar sesión", fontWeight = FontWeight.Bold) }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.navigationBarsPadding().height(24.dp))
         }
-    }
-}
-
-@Composable
-fun HeaderConfiguracion(
-    titulo: String,
-    temaOscuro: Boolean,
-    onBack: () -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        TextButton(
-            onClick = onBack
-        ) {
-            Text(
-                text = "←",
-                fontSize = 24.sp,
-                color = if (temaOscuro) Color.White else Color.Black
-            )
-        }
-
-        Text(
-            text = titulo,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (temaOscuro) Color.White else Color.Black
-        )
     }
 }
 
 @Composable
 fun SettingsCard(
-    title: String,
     emoji: String,
-    temaOscuro: Boolean,
+    title: String,
+    uiColors: AppUiColors,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val cardColor = if (temaOscuro) Color(0xFF1B1B1B) else Color.White
-    val textColor = if (temaOscuro) Color.White else Color(0xFF202020)
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 14.dp)
-            .background(
-                color = cardColor,
-                shape = RoundedCornerShape(20.dp)
-            )
-            .border(
-                width = 1.dp,
-                color = if (temaOscuro) Color(0xFF333333) else Color(0xFFE5E5E5),
-                shape = RoundedCornerShape(20.dp)
-            )
+            .background(uiColors.card, RoundedCornerShape(20.dp))
+            .border(1.dp, uiColors.border, RoundedCornerShape(20.dp))
             .padding(16.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = emoji,
-                fontSize = 18.sp
-            )
-
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(text = emoji, fontSize = 18.sp)
             Spacer(modifier = Modifier.padding(horizontal = 4.dp))
-
-            Text(
-                text = title,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                color = textColor
-            )
+            Text(text = title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = uiColors.textPrimary)
         }
-
         Spacer(modifier = Modifier.height(12.dp))
-
         content()
     }
 }
 
 @Composable
-fun SettingText(
-    label: String,
-    value: String,
-    temaOscuro: Boolean
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp)
-    ) {
-        Text(
-            text = label,
-            fontSize = 12.sp,
-            color = if (temaOscuro) Color(0xFFBDBDBD) else Color.Gray
-        )
-
-        Text(
-            text = value,
-            fontSize = 14.sp,
-            color = if (temaOscuro) Color.White else Color(0xFF303030)
-        )
+fun SettingText(label: String, value: String, uiColors: AppUiColors) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Text(text = label, fontSize = 12.sp, color = uiColors.textMuted)
+        Text(text = value, fontSize = 14.sp, color = uiColors.textPrimary)
     }
 }
 
@@ -467,215 +216,89 @@ fun SettingSwitch(
     title: String,
     description: String,
     checked: Boolean,
-    temaOscuro: Boolean,
+    uiColors: AppUiColors,
     enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    val textColor = if (temaOscuro) Color.White else Color(0xFF202020)
-    val subTextColor = if (temaOscuro) Color(0xFFBDBDBD) else Color.Gray
-
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 7.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(
-                text = title,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                color = if (enabled) textColor else subTextColor
-            )
-
-            Text(
-                text = description,
-                fontSize = 12.sp,
-                color = subTextColor
-            )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = if (enabled) uiColors.textPrimary else uiColors.textMuted)
+            Text(text = description, fontSize = 12.sp, color = uiColors.textMuted)
         }
-
         Switch(
             checked = checked,
             enabled = enabled,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = TealPrimary,
+                uncheckedThumbColor = uiColors.textMuted,
+                uncheckedTrackColor = uiColors.cardSecondary
+            )
         )
     }
 }
 
 @Composable
-fun UnidadPrincipalSelector(
-    unidadActual: String,
-    temaOscuro: Boolean,
-    onUnidadChange: (String) -> Unit
-) {
-    val textColor = if (temaOscuro) Color.White else Color(0xFF202020)
-
-    Text(
-        text = "Unidad principal",
-        fontSize = 14.sp,
-        fontWeight = FontWeight.Bold,
-        color = textColor
-    )
-
+fun UnidadPrincipalSelector(unidadActual: String, uiColors: AppUiColors, onUnidadChange: (String) -> Unit) {
+    Text("Unidad principal", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = uiColors.textPrimary)
     Spacer(modifier = Modifier.height(6.dp))
-
-    OptionRadioRow(
-        text = "Kilómetros",
-        selected = unidadActual == "kilometros",
-        temaOscuro = temaOscuro,
-        onClick = {
-            onUnidadChange("kilometros")
-        }
-    )
-
-    OptionRadioRow(
-        text = "Millas",
-        selected = unidadActual == "millas",
-        temaOscuro = temaOscuro,
-        onClick = {
-            onUnidadChange("millas")
-        }
-    )
+    OptionRadioRow("Kilómetros", unidadActual == "kilometros", uiColors) { onUnidadChange("kilometros") }
+    OptionRadioRow("Millas", unidadActual == "millas", uiColors) { onUnidadChange("millas") }
 }
 
 @Composable
-fun TemaSelector(
-    temaOscuro: Boolean,
-    onTemaChange: (Boolean) -> Unit
-) {
-    Text(
-        text = "Tema de la app",
-        fontSize = 14.sp,
-        fontWeight = FontWeight.Bold,
-        color = if (temaOscuro) Color.White else Color(0xFF202020)
-    )
-
+fun TemaSelector(temaOscuro: Boolean, uiColors: AppUiColors, onTemaChange: (Boolean) -> Unit) {
+    Text("Tema de la app", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = uiColors.textPrimary)
     Spacer(modifier = Modifier.height(8.dp))
-
-    OptionRadioRow(
-        text = "Claro",
-        selected = !temaOscuro,
-        temaOscuro = temaOscuro,
-        onClick = {
-            onTemaChange(false)
-        }
-    )
-
-    OptionRadioRow(
-        text = "Oscuro",
-        selected = temaOscuro,
-        temaOscuro = temaOscuro,
-        onClick = {
-            onTemaChange(true)
-        }
-    )
-
+    OptionRadioRow("Claro", !temaOscuro, uiColors) { onTemaChange(false) }
+    OptionRadioRow("Oscuro", temaOscuro, uiColors) { onTemaChange(true) }
     Spacer(modifier = Modifier.height(6.dp))
-
-    Text(
-        text = "Tema seleccionado: ${if (temaOscuro) "Oscuro" else "Claro"}",
-        fontSize = 12.sp,
-        color = if (temaOscuro) Color(0xFFBDBDBD) else Color.Gray
-    )
+    Text("Tema seleccionado: ${if (temaOscuro) "Oscuro" else "Claro"}", fontSize = 12.sp, color = uiColors.textMuted)
 }
 
 @Composable
-fun OptionRadioRow(
-    text: String,
-    selected: Boolean,
-    temaOscuro: Boolean,
-    onClick: () -> Unit
-) {
-    val fondo = if (temaOscuro) Color(0xFF242424) else Color(0xFFF7F7F7)
-
+fun OptionRadioRow(text: String, selected: Boolean, uiColors: AppUiColors, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .background(
-                color = fondo,
-                shape = RoundedCornerShape(14.dp)
-            )
+            .background(uiColors.cardSecondary, RoundedCornerShape(14.dp))
             .clickable { onClick() }
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = text,
-            modifier = Modifier.weight(1f),
-            fontSize = 14.sp,
-            color = if (temaOscuro) Color.White else Color(0xFF303030)
-        )
-
+        Text(text = text, modifier = Modifier.weight(1f), fontSize = 14.sp, color = uiColors.textPrimary)
         RadioButton(
             selected = selected,
-            onClick = onClick
+            onClick = onClick,
+            colors = RadioButtonDefaults.colors(selectedColor = TealPrimary, unselectedColor = uiColors.textMuted)
         )
     }
 }
 
 @Composable
-fun SensorStatusRow(
-    label: String,
-    value: String,
-    activo: Boolean,
-    temaOscuro: Boolean
-) {
-    val estadoColor = if (activo) Color(0xFF2ECC71) else Color(0xFFFFB74D)
-    val textColor = if (temaOscuro) Color.White else Color(0xFF303030)
-
+fun SensorStatusRow(label: String, value: String, activo: Boolean, uiColors: AppUiColors) {
+    val estadoColor = if (activo) TealPrimary else Color(0xFFFFB74D)
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 5.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .background(
-                    color = estadoColor,
-                    shape = RoundedCornerShape(50.dp)
-                )
-                .padding(horizontal = 5.dp, vertical = 5.dp)
-        )
-
+        Box(modifier = Modifier.size(10.dp).background(estadoColor, CircleShape))
         Spacer(modifier = Modifier.padding(horizontal = 4.dp))
-
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(
-                text = label,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = textColor
-            )
-
-            Text(
-                text = value,
-                fontSize = 12.sp,
-                color = if (temaOscuro) Color(0xFFBDBDBD) else Color.Gray
-            )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = uiColors.textPrimary)
+            Text(text = value, fontSize = 12.sp, color = uiColors.textMuted)
         }
     }
 }
 
 fun limpiarSesionLocal(context: Context) {
-    val posiblesPrefs = listOf(
-        "session",
-        "user_session",
-        "UserPrefs",
-        "user_prefs",
-        "app_prefs"
-    )
-
-    posiblesPrefs.forEach { nombre ->
-        context.getSharedPreferences(nombre, Context.MODE_PRIVATE)
-            .edit()
-            .clear()
-            .apply()
+    listOf("session", "app_prefs").forEach { nombre ->
+        context.getSharedPreferences(nombre, Context.MODE_PRIVATE).edit().clear().apply()
     }
+    SessionManager(context).logout()
 }

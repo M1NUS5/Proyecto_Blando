@@ -1,6 +1,7 @@
 package com.example.myapplication1
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -8,10 +9,14 @@ import androidx.navigation.compose.rememberNavController
 @Composable
 fun Navegacion(onThemeChange: (Boolean) -> Unit) {
     val navController = rememberNavController()
+    val context = LocalContext.current
+    val session = SessionManager(context)
+
+    val startDestination = if (session.hasActiveSession()) "home" else "login"
 
     NavHost(
         navController = navController,
-        startDestination = "login"
+        startDestination = startDestination
     ) {
 
         composable("login") {
@@ -60,6 +65,10 @@ fun Navegacion(onThemeChange: (Boolean) -> Unit) {
 
         composable("agenda") {
             AgendaScreen(navController)
+        }
+
+        composable("camera") {
+            CameraScreen(navController)
         }
 
         composable("settings") {

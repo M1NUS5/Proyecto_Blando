@@ -26,6 +26,18 @@ class SessionManager(context: Context) {
             .apply()
     }
 
+    fun getDisplayName(): String? = prefs.getString("display_name", null)
+
+    fun saveDisplayName(name: String) {
+        prefs.edit().putString("display_name", name).apply()
+    }
+
+    fun getPhotoUri(): String? = prefs.getString("photo_uri", null)
+
+    fun savePhotoUri(uri: String) {
+        prefs.edit().putString("photo_uri", uri).apply()
+    }
+
     fun getUserId(): String? = prefs.getString("id", null)
 
     fun getName(): String? = prefs.getString("name", null)
