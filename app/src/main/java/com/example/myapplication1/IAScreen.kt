@@ -41,12 +41,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
+import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.Marker
+import com.google.maps.android.compose.MarkerState
+import com.google.maps.android.compose.Polyline
+import com.google.maps.android.compose.rememberCameraPositionState
 import java.util.Locale
 
 @Composable
@@ -232,6 +240,39 @@ fun IAScreen(navController: NavController) {
         cargarDatosUltimaCorrida()
     }
 
+    val hayRecorrido = RunDataStore.hasFinishedRun && RunDataStore.finishedPathPoints.size >= 2
+    val puntosRecorrido = if (hayRecorrido) RunDataStore.finishedPathPoints else emptyList()
+
+    var centroRecorrido = LatLng(31.6904, -106.4245)
+    var zoomRecorrido = 15f
+
+    if (hayRecorrido && puntosRecorrido.isNotEmpty()) {
+        var maxLat = puntosRecorrido[0].latitude
+        var minLat = puntosRecorrido[0].latitude
+        var maxLng = puntosRecorrido[0].longitude
+        var minLng = puntosRecorrido[0].longitude
+        for (punto in puntosRecorrido) {
+            if (punto.latitude > maxLat) maxLat = punto.latitude
+            if (punto.latitude < minLat) minLat = punto.latitude
+            if (punto.longitude > maxLng) maxLng = punto.longitude
+            if (punto.longitude < minLng) minLng = punto.longitude
+        }
+        centroRecorrido = LatLng((maxLat + minLat) / 2.0, (maxLng + minLng) / 2.0)
+        val latDiff = maxLat - minLat
+        val lngDiff = maxLng - minLng
+        zoomRecorrido = when {
+            latDiff < 0.002 && lngDiff < 0.002 -> 17f
+            latDiff < 0.005 && lngDiff < 0.005 -> 16f
+            latDiff < 0.01  && lngDiff < 0.01  -> 15f
+            latDiff < 0.03  && lngDiff < 0.03  -> 14f
+            else -> 13f
+        }
+    }
+
+    val camaraRecorrido = rememberCameraPositionState {
+        position = CameraPosition.fromLatLngZoom(centroRecorrido, zoomRecorrido)
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -253,6 +294,29 @@ fun IAScreen(navController: NavController) {
                 color = uiColors.textPrimary,
                 modifier = Modifier.padding(top = 16.dp, bottom = 16.dp)
             )
+
+            if (hayRecorrido) {
+                IAInfoCard(
+                    title = "Recorrido registrado",
+                    subtitle = "Mapa del trayecto de tu última corrida",
+                    uiColors = uiColors
+                ) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    GoogleMap(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp)
+                            .clip(RoundedCornerShape(16.dp)),
+                        cameraPositionState = camaraRecorrido
+                    ) {
+                        Polyline(points = puntosRecorrido, width = 10f, color = Color(0xFF26A69A))
+                        Marker(state = MarkerState(position = puntosRecorrido.first()), title = "Inicio")
+                        Marker(state = MarkerState(position = puntosRecorrido.last()), title = "Fin")
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
             if (!settings.prediccionIAActiva) {
                 IAInfoCard(
