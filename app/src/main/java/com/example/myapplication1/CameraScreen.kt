@@ -5,7 +5,6 @@ import android.net.Uri
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -34,36 +33,14 @@ import coil.compose.rememberAsyncImagePainter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
-import java.net.HttpURLConnection
-import java.net.URL
 
 private val TealPrimary = Color(0xFF26A69A)
 private val TealMedium  = Color(0xFF4DB6AC)
-
-data class FoodAnalysisResult(
-    val foodName: String,
-    val category: String,
-    val portion: String,
-    val estimatedCalories: Int,
-    val calorieRange: String,
-    val protein: Int,
-    val carbs: Int,
-    val fats: Int,
-    val confidence: String,
-    val observation: String
-)
-
-data class ResumenDelDia(
-    val totalCalories: Int,
-    val totalProtein: Int,
-    val totalCarbs: Int,
-    val totalFats: Int,
-    val cantidadComidas: Int
-)
 
 // Escala la imagen respetando su forma original (nunca la deforma a un cuadrado)
 // y solo la reduce si excede maxDim, para no perder calidad innecesariamente.
@@ -96,13 +73,14 @@ private fun bitmapAJpegBase64(
 }
 
 @Composable
-fun CameraScreen(
-    navController: NavController,
-    // TODO: reemplaza este valor por tu fuente real de sesión
-    // (ej. UserSession.userId, un DataStore, o un argumento de tu grafo de navegación).
-    userId: String? = null
-) {
+fun CameraScreen(navController: NavController) {
     val context = LocalContext.current
+
+    // La sesion es la unica fuente del identificador de usuario, igual que en
+    // AgendaScreen y en el guardado automatico de entrenamientos.
+    val sessionManager = remember { SessionManager(context) }
+    val userId = sessionManager.getUserId()
+
     val settings by AppSettingsStore.settings.collectAsState()
     val uiColors = appUiColors(settings.temaOscuro)
     val dimens = rememberResponsiveDimens()
@@ -111,14 +89,18 @@ fun CameraScreen(
     var imageUri by remember { mutableStateOf<Uri?>(null) }
     var imageBase64 by remember { mutableStateOf<String?>(null) }
     var imageMediaType by remember { mutableStateOf("image/jpeg") }
-    var resultado by remember { mutableStateOf<FoodAnalysisResult?>(null) }
+    var resultado by remember { mutableStateOf<FoodAnalysisResponse?>(null) }
+    var preparandoImagen by remember { mutableStateOf(false) }
     var cargando by remember { mutableStateOf(false) }
     var guardando by remember { mutableStateOf(false) }
     var guardadoOk by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var resumenDelDia by remember { mutableStateOf<ResumenDelDia?>(null) }
+    var resumenDelDia by remember { mutableStateOf<MealSummaryResponse?>(null) }
 
-    val BASE_URL = "https://entrenador-ritmo-backend.onrender.com"
+    var pestanaSeleccionada by remember { mutableIntStateOf(0) }
+    var comidas by remember { mutableStateOf<List<MealItem>>(emptyList()) }
+    var comidaParaEliminar by remember { mutableStateOf<MealItem?>(null) }
+    var mensajeHistorial by remember { mutableStateOf("Cargando historial...") }
 
     fun fechaHoy(): String {
         val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
@@ -127,97 +109,169 @@ fun CameraScreen(
 
     fun cargarResumenDelDia() {
         val uid = userId ?: return
-        scope.launch {
-            try {
-                val respuesta = withContext(Dispatchers.IO) {
-                    val url = URL("$BASE_URL/meals/$uid/summary?date=${fechaHoy()}")
-                    val conn = url.openConnection() as HttpURLConnection
-                    conn.requestMethod = "GET"
-                    conn.connectTimeout = 15000
-                    conn.readTimeout = 15000
 
-                    val code = conn.responseCode
-                    val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                    val response = stream.bufferedReader().readText()
-                    stream.close()
-
-                    if (code !in 200..299) throw Exception("HTTP $code: $response")
-                    response
+        RetrofitClient.instance.getMealSummary(uid, fechaHoy())
+            .enqueue(object : Callback<MealSummaryResponse> {
+                override fun onResponse(
+                    call: Call<MealSummaryResponse>,
+                    response: Response<MealSummaryResponse>
+                ) {
+                    if (response.isSuccessful) {
+                        resumenDelDia = response.body()
+                    }
                 }
-                val json = JSONObject(respuesta)
-                resumenDelDia = ResumenDelDia(
-                    totalCalories = json.optInt("totalCalories", 0),
-                    totalProtein = json.optInt("totalProtein", 0),
-                    totalCarbs = json.optInt("totalCarbs", 0),
-                    totalFats = json.optInt("totalFats", 0),
-                    cantidadComidas = json.optInt("cantidadComidas", 0)
-                )
-            } catch (e: Exception) {
+
                 // Si falla el resumen no interrumpimos el resto de la pantalla,
-                // simplemente no se muestra el total del día.
-            }
+                // simplemente no se muestra el total del dia.
+                override fun onFailure(call: Call<MealSummaryResponse>, t: Throwable) = Unit
+            })
+    }
+
+    fun cargarComidas() {
+        val uid = userId
+
+        if (uid.isNullOrBlank()) {
+            comidas = emptyList()
+            mensajeHistorial = "No hay sesión iniciada"
+            return
         }
+
+        RetrofitClient.instance.getMeals(uid)
+            .enqueue(object : Callback<List<MealItem>> {
+                override fun onResponse(
+                    call: Call<List<MealItem>>,
+                    response: Response<List<MealItem>>
+                ) {
+                    if (response.isSuccessful) {
+                        comidas = response.body().orEmpty()
+
+                        mensajeHistorial = if (comidas.isEmpty()) {
+                            "Todavía no has registrado ninguna comida."
+                        } else {
+                            "Comidas registradas: ${comidas.size}"
+                        }
+                    } else {
+                        mensajeHistorial = "No se pudo cargar el historial (código ${response.code()})."
+                    }
+                }
+
+                override fun onFailure(call: Call<List<MealItem>>, t: Throwable) {
+                    mensajeHistorial = "Fallo de conexión: ${t.message}"
+                }
+            })
+    }
+
+    fun eliminarComida(comida: MealItem) {
+        val idComida = comida._id
+
+        if (idComida.isNullOrBlank()) {
+            comidaParaEliminar = null
+            return
+        }
+
+        RetrofitClient.instance.deleteMeal(idComida)
+            .enqueue(object : Callback<DeleteResponse> {
+                override fun onResponse(
+                    call: Call<DeleteResponse>,
+                    response: Response<DeleteResponse>
+                ) {
+                    comidaParaEliminar = null
+
+                    if (response.isSuccessful) {
+                        comidas = comidas.filter { it._id != idComida }
+                        cargarResumenDelDia()
+                    }
+                }
+
+                override fun onFailure(call: Call<DeleteResponse>, t: Throwable) {
+                    comidaParaEliminar = null
+                }
+            })
     }
 
     LaunchedEffect(userId) {
         cargarResumenDelDia()
+        cargarComidas()
     }
 
     fun guardarComida() {
         val res = resultado ?: return
         val uid = userId
-        if (uid == null) {
+
+        if (uid.isNullOrBlank()) {
             error = "No se pudo guardar: no hay una sesión de usuario activa."
             return
         }
 
         guardando = true
         guardadoOk = false
+        error = null
+
+        val comida = MealRequest(
+            userId = uid,
+            foodName = res.foodName,
+            category = res.category,
+            portion = res.portion,
+            estimatedCalories = res.estimatedCalories,
+            calorieRange = res.calorieRange,
+            protein = res.protein,
+            carbs = res.carbs,
+            fats = res.fats,
+            confidence = res.confidence,
+            observation = res.observation,
+            date = fechaHoy()
+        )
+
+        RetrofitClient.instance.saveMeal(comida)
+            .enqueue(object : Callback<MealResponse> {
+                override fun onResponse(
+                    call: Call<MealResponse>,
+                    response: Response<MealResponse>
+                ) {
+                    guardando = false
+
+                    if (response.isSuccessful) {
+                        guardadoOk = true
+                        cargarResumenDelDia()
+                        cargarComidas()
+                    } else {
+                        error = "No se pudo guardar la comida (código ${response.code()})."
+                    }
+                }
+
+                override fun onFailure(call: Call<MealResponse>, t: Throwable) {
+                    guardando = false
+                    error = "Error de conexión al guardar: ${t.message}"
+                }
+            })
+    }
+
+    // El decodificado y la compresion de la fotografia son operaciones costosas,
+    // por eso se ejecutan fuera del hilo principal para no congelar la interfaz.
+    fun prepararImagen(uri: Uri) {
+        imageUri = uri
+        resultado = null
+        error = null
+        guardadoOk = false
+        preparandoImagen = true
 
         scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    val url = URL("$BASE_URL/meals")
-                    val conn = url.openConnection() as HttpURLConnection
-                    conn.requestMethod = "POST"
-                    conn.setRequestProperty("Content-Type", "application/json")
-                    conn.doOutput = true
-                    conn.connectTimeout = 15000
-                    conn.readTimeout = 15000
+            val base64 = withContext(Dispatchers.Default) {
+                runCatching {
+                    val stream: InputStream? = context.contentResolver.openInputStream(uri)
+                    val bytes = stream.use { it?.readBytes() } ?: return@runCatching null
+                    bitmapAJpegBase64(bytes)
+                }.getOrNull()
+            }
 
-                    val body = JSONObject().apply {
-                        put("userId", uid)
-                        put("foodName", res.foodName)
-                        put("category", res.category)
-                        put("portion", res.portion)
-                        put("estimatedCalories", res.estimatedCalories)
-                        put("calorieRange", res.calorieRange)
-                        put("protein", res.protein)
-                        put("carbs", res.carbs)
-                        put("fats", res.fats)
-                        put("confidence", res.confidence)
-                        put("observation", res.observation)
-                        put("date", fechaHoy())
-                    }
+            preparandoImagen = false
 
-                    conn.outputStream.use { output ->
-                        output.write(body.toString().toByteArray())
-                        output.flush()
-                    }
-
-                    val code = conn.responseCode
-                    val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                    val response = stream.bufferedReader().readText()
-                    stream.close()
-
-                    if (code !in 200..299) throw Exception("HTTP $code: $response")
-                }
-                guardadoOk = true
-                cargarResumenDelDia()
-            } catch (e: Exception) {
-                error = "Error al guardar: ${e.message}"
-            } finally {
-                guardando = false
+            if (base64 == null) {
+                error = "No se pudo procesar la imagen seleccionada."
+                imageUri = null
+            } else {
+                imageBase64 = base64
+                imageMediaType = "image/jpeg"
             }
         }
     }
@@ -225,18 +279,7 @@ fun CameraScreen(
     val galeriaLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        if (uri != null) {
-            imageUri = uri
-            resultado = null
-            error = null
-            val stream: InputStream? = context.contentResolver.openInputStream(uri)
-            val originalBytes = stream?.readBytes()
-            stream?.close()
-            if (originalBytes != null) {
-                imageBase64 = bitmapAJpegBase64(originalBytes)
-                imageMediaType = "image/jpeg"
-            }
-        }
+        if (uri != null) prepararImagen(uri)
     }
 
     var cameraTempUri by remember { mutableStateOf<Uri?>(null) }
@@ -245,18 +288,7 @@ fun CameraScreen(
         contract = ActivityResultContracts.TakePicture()
     ) { exito: Boolean ->
         val uri = cameraTempUri
-        if (exito && uri != null) {
-            resultado = null
-            error = null
-            val stream: InputStream? = context.contentResolver.openInputStream(uri)
-            val bytes = stream?.readBytes()
-            stream?.close()
-            if (bytes != null) {
-                imageBase64 = bitmapAJpegBase64(bytes)
-                imageMediaType = "image/jpeg"
-                imageUri = uri
-            }
-        }
+        if (exito && uri != null) prepararImagen(uri)
     }
 
     fun lanzarCamara() {
@@ -275,80 +307,45 @@ fun CameraScreen(
 
     fun analizarImagen() {
         val base64 = imageBase64 ?: return
+
         cargando = true
         error = null
         resultado = null
         guardadoOk = false
 
-        scope.launch {
-            try {
-                val respuesta = withContext(Dispatchers.IO) {
-                    val url = URL("$BASE_URL/analyze-food")
-                    val conn = url.openConnection() as HttpURLConnection
-                    conn.requestMethod = "POST"
-                    conn.setRequestProperty("Content-Type", "application/json")
-                    conn.doOutput = true
-                    conn.connectTimeout = 20000
-                    conn.readTimeout = 30000
+        RetrofitClient.instance
+            .analyzeFood(FoodAnalysisRequest(imageBase64 = base64, mimeType = imageMediaType))
+            .enqueue(object : Callback<FoodAnalysisResponse> {
+                override fun onResponse(
+                    call: Call<FoodAnalysisResponse>,
+                    response: Response<FoodAnalysisResponse>
+                ) {
+                    cargando = false
 
-                    val body = JSONObject().apply {
-                        put("imageBase64", base64)
-                        put("mimeType", imageMediaType)
+                    val cuerpo = response.body()
+
+                    when {
+                        !response.isSuccessful || cuerpo == null ->
+                            error = "El servidor no pudo analizar la imagen (código ${response.code()})."
+
+                        !cuerpo.isFood ->
+                            error = cuerpo.observation.ifBlank {
+                                "No se detectó comida en la imagen."
+                            }
+
+                        else -> resultado = cuerpo
                     }
-
-                    conn.outputStream.use { output ->
-                        output.write(body.toString().toByteArray())
-                        output.flush()
-                    }
-
-                    val code = conn.responseCode
-                    val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                    val response = stream.bufferedReader().readText()
-                    stream.close()
-
-                    if (code !in 200..299) {
-                        throw Exception("HTTP $code: $response")
-                    }
-
-                    response
                 }
 
-                // El backend devuelve UN objeto (no un array "detectedFoods"):
-                // { isFood, foodName, category, portion, estimatedCalories,
-                //   calorieRange, protein, carbs, fats, confidence, observation }
-                val json = JSONObject(respuesta)
-                val isFood = json.optBoolean("isFood", false)
-
-                if (!isFood) {
-                    error = json.optString(
-                        "observation",
-                        "No se detectó comida en la imagen."
-                    )
-                } else {
-                    resultado = FoodAnalysisResult(
-                        foodName = json.optString("foodName", "Alimento no identificado"),
-                        category = json.optString("category", ""),
-                        portion = json.optString("portion", ""),
-                        estimatedCalories = json.optInt("estimatedCalories", 0),
-                        calorieRange = json.optString("calorieRange", ""),
-                        protein = json.optInt("protein", 0),
-                        carbs = json.optInt("carbs", 0),
-                        fats = json.optInt("fats", 0),
-                        confidence = json.optString("confidence", ""),
-                        observation = json.optString("observation", "")
-                    )
+                override fun onFailure(call: Call<FoodAnalysisResponse>, t: Throwable) {
+                    cargando = false
+                    error = if (t is java.net.SocketTimeoutException) {
+                        "El servidor tardó demasiado en responder. Intenta de nuevo."
+                    } else {
+                        "Error al analizar: ${t.message}"
+                    }
                 }
-
-            } catch (e: Exception) {
-                error = if (e is java.net.SocketTimeoutException) {
-                    "El servidor tardó demasiado en responder. Intenta de nuevo."
-                } else {
-                    "Error al analizar: ${e.message}"
-                }
-            } finally {
-                cargando = false
-            }
-        }
+            })
     }
 
     Box(
@@ -365,8 +362,13 @@ fun CameraScreen(
                 .padding(top = 16.dp, bottom = 100.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            EntrenamientoActivoBanner(
+                navController = navController,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
             Text(
-                text = "Analizador de comida",
+                text = "Control de comidas",
                 fontSize = dimens.titleFontSize,
                 fontWeight = FontWeight.Bold,
                 color = uiColors.textPrimary,
@@ -374,14 +376,50 @@ fun CameraScreen(
             )
 
             Text(
-                text = "Toma o sube una foto de tu comida",
+                text = if (pestanaSeleccionada == 0) {
+                    "Toma o sube una foto de tu comida"
+                } else {
+                    "Todo lo que has registrado"
+                },
                 fontSize = dimens.bodyFontSize,
                 color = uiColors.textSecondary,
                 modifier = Modifier.fillMaxWidth()
             )
 
+            Spacer(modifier = Modifier.height(14.dp))
+
+            TabRow(
+                selectedTabIndex = pestanaSeleccionada,
+                containerColor = uiColors.cardSecondary,
+                contentColor = TealPrimary,
+                modifier = Modifier.clip(RoundedCornerShape(14.dp))
+            ) {
+                Tab(
+                    selected = pestanaSeleccionada == 0,
+                    onClick = { pestanaSeleccionada = 0 },
+                    selectedContentColor = TealPrimary,
+                    unselectedContentColor = uiColors.textMuted,
+                    text = { Text("Analizar", fontWeight = FontWeight.Bold) }
+                )
+
+                Tab(
+                    selected = pestanaSeleccionada == 1,
+                    onClick = {
+                        pestanaSeleccionada = 1
+                        cargarComidas()
+                    },
+                    selectedContentColor = TealPrimary,
+                    unselectedContentColor = uiColors.textMuted,
+                    text = { Text("Historial", fontWeight = FontWeight.Bold) }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // El resumen de hoy solo acompana al analizador: en el historial los
+            // totales ya aparecen agrupados por cada fecha.
             resumenDelDia?.let { resumen ->
-                if (resumen.cantidadComidas > 0) {
+                if (pestanaSeleccionada == 0 && resumen.cantidadComidas > 0) {
                     Spacer(modifier = Modifier.height(14.dp))
                     Column(
                         modifier = Modifier
@@ -409,258 +447,361 @@ fun CameraScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            if (pestanaSeleccionada == 0) {
+                Spacer(modifier = Modifier.height(20.dp))
 
-            if (imageUri != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(260.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(uiColors.cardSecondary)
-                        .border(2.dp, TealPrimary, RoundedCornerShape(20.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    androidx.compose.foundation.Image(
-                        painter = rememberAsyncImagePainter(imageUri),
-                        contentDescription = "Foto de comida",
-                        contentScale = ContentScale.Fit,
+                if (imageUri != null) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(4.dp)
-                    )
-                }
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(220.dp)
-                        .background(uiColors.cardSecondary, RoundedCornerShape(20.dp))
-                        .border(2.dp, uiColors.border, RoundedCornerShape(20.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.CameraAlt,
-                            contentDescription = null,
-                            tint = uiColors.textMuted,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Sin imagen",
-                            fontSize = dimens.labelFontSize,
-                            color = uiColors.textMuted
+                            .fillMaxWidth()
+                            .height(260.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(uiColors.cardSecondary)
+                            .border(2.dp, TealPrimary, RoundedCornerShape(20.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.foundation.Image(
+                            painter = rememberAsyncImagePainter(imageUri),
+                            contentDescription = "Foto de comida",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(4.dp)
                         )
                     }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp)
+                            .background(uiColors.cardSecondary, RoundedCornerShape(20.dp))
+                            .border(2.dp, uiColors.border, RoundedCornerShape(20.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Default.CameraAlt,
+                                contentDescription = null,
+                                tint = uiColors.textMuted,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Sin imagen",
+                                fontSize = dimens.labelFontSize,
+                                color = uiColors.textMuted
+                            )
+                        }
+                    }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedButton(
-                    onClick = { lanzarCamara() },
-                    modifier = Modifier.weight(1f).height(dimens.buttonHeight),
-                    shape = RoundedCornerShape(14.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.5.dp, TealPrimary)
-                ) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = TealPrimary)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Cámara", color = TealPrimary, fontWeight = FontWeight.Bold)
-                }
-
-                OutlinedButton(
-                    onClick = { galeriaLauncher.launch("image/*") },
-                    modifier = Modifier.weight(1f).height(dimens.buttonHeight),
-                    shape = RoundedCornerShape(14.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.5.dp, TealPrimary)
-                ) {
-                    Icon(Icons.Default.Image, contentDescription = null, tint = TealPrimary)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Galería", color = TealPrimary, fontWeight = FontWeight.Bold)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Button(
-                onClick = { analizarImagen() },
-                enabled = imageUri != null && !cargando,
-                modifier = Modifier.fillMaxWidth().height(dimens.buttonHeight),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = TealPrimary,
-                    contentColor = Color.White,
-                    disabledContainerColor = uiColors.border
-                )
-            ) {
-                Icon(Icons.Default.AutoAwesome, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (cargando) "Analizando..." else "Analizar con IA",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = dimens.buttonFontSize
-                )
-            }
-
-            if (cargando) {
-                Spacer(modifier = Modifier.height(20.dp))
-                CircularProgressIndicator(color = TealPrimary)
-            }
-
-            error?.let {
                 Spacer(modifier = Modifier.height(16.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(uiColors.dangerButton.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
-                        .padding(14.dp)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(text = it, color = uiColors.dangerButton, fontSize = dimens.bodyFontSize)
-                }
-            }
-
-            resultado?.let { res ->
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(uiColors.card, RoundedCornerShape(20.dp))
-                        .border(1.dp, TealPrimary, RoundedCornerShape(20.dp))
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = "Resultado nutricional",
-                        fontSize = dimens.titleFontSize,
-                        fontWeight = FontWeight.Bold,
-                        color = TealPrimary
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    // Nombre del alimento (título propio, con espacio de sobra para envolver)
-                    Text(
-                        text = res.foodName,
-                        fontSize = dimens.bodyFontSize,
-                        fontWeight = FontWeight.Bold,
-                        color = uiColors.textPrimary
-                    )
-
-                    if (res.category.isNotBlank() || res.portion.isNotBlank()) {
-                        Text(
-                            text = listOfNotNull(
-                                res.category.takeIf { it.isNotBlank() },
-                                res.portion.takeIf { it.isNotBlank() }
-                            ).joinToString(" · "),
-                            fontSize = dimens.labelFontSize,
-                            color = uiColors.textSecondary
-                        )
+                    OutlinedButton(
+                        onClick = { lanzarCamara() },
+                        enabled = !preparandoImagen && !cargando,
+                        modifier = Modifier.weight(1f).height(dimens.buttonHeight),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, TealPrimary)
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null, tint = TealPrimary)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Cámara", color = TealPrimary, fontWeight = FontWeight.Bold)
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider(color = uiColors.border, thickness = 0.5.dp)
-                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = { galeriaLauncher.launch("image/*") },
+                        enabled = !preparandoImagen && !cargando,
+                        modifier = Modifier.weight(1f).height(dimens.buttonHeight),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, TealPrimary)
+                    ) {
+                        Icon(Icons.Default.Image, contentDescription = null, tint = TealPrimary)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Galería", color = TealPrimary, fontWeight = FontWeight.Bold)
+                    }
+                }
 
-                    // Calorías: el rango es el dato principal, la cifra puntual va como "~aprox."
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = { analizarImagen() },
+                    enabled = imageBase64 != null && !cargando && !preparandoImagen,
+                    modifier = Modifier.fillMaxWidth().height(dimens.buttonHeight),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = TealPrimary,
+                        contentColor = Color.White,
+                        disabledContainerColor = uiColors.border
+                    )
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = when {
+                            preparandoImagen -> "Preparando imagen..."
+                            cargando -> "Analizando..."
+                            else -> "Analizar con IA"
+                        },
+                        fontWeight = FontWeight.Bold,
+                        fontSize = dimens.buttonFontSize
+                    )
+                }
+
+                if (cargando || preparandoImagen) {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    CircularProgressIndicator(color = TealPrimary)
+                }
+
+                error?.let {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(uiColors.dangerButton.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+                            .padding(14.dp)
+                    ) {
+                        Text(text = it, color = uiColors.dangerButton, fontSize = dimens.bodyFontSize)
+                    }
+                }
+
+                resultado?.let { res ->
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(uiColors.card, RoundedCornerShape(20.dp))
+                            .border(1.dp, TealPrimary, RoundedCornerShape(20.dp))
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         Text(
-                            text = "≈ ${res.estimatedCalories} kcal",
+                            text = "Resultado nutricional",
                             fontSize = dimens.titleFontSize,
                             fontWeight = FontWeight.Bold,
                             color = TealPrimary
                         )
-                        if (res.calorieRange.isNotBlank()) {
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Nombre del alimento (título propio, con espacio de sobra para envolver)
+                        Text(
+                            text = res.foodName,
+                            fontSize = dimens.bodyFontSize,
+                            fontWeight = FontWeight.Bold,
+                            color = uiColors.textPrimary
+                        )
+
+                        if (res.category.isNotBlank() || res.portion.isNotBlank()) {
                             Text(
-                                text = "Rango estimado: ${res.calorieRange}",
+                                text = listOfNotNull(
+                                    res.category.takeIf { it.isNotBlank() },
+                                    res.portion.takeIf { it.isNotBlank() }
+                                ).joinToString(" · "),
                                 fontSize = dimens.labelFontSize,
                                 color = uiColors.textSecondary
                             )
                         }
-                    }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider(color = uiColors.border, thickness = 0.5.dp)
-                    Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(color = uiColors.border, thickness = 0.5.dp)
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                    // Macronutrientes: tres columnas iguales
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        MacroColumn(label = "Proteína", valor = res.protein, color = uiColors.textPrimary)
-                        MacroColumn(label = "Carbos", valor = res.carbs, color = uiColors.textPrimary)
-                        MacroColumn(label = "Grasas", valor = res.fats, color = uiColors.textPrimary)
-                    }
+                        // Calorías: el rango es el dato principal, la cifra puntual va como "~aprox."
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "≈ ${res.estimatedCalories} kcal",
+                                fontSize = dimens.titleFontSize,
+                                fontWeight = FontWeight.Bold,
+                                color = TealPrimary
+                            )
+                            // El rango solo aporta informacion cuando hay calorias
+                            // que estimar; en alimentos sin aporte se omite.
+                            if (res.estimatedCalories > 0 && res.calorieRange.isNotBlank()) {
+                                Text(
+                                    text = "Rango estimado: ${res.calorieRange}",
+                                    fontSize = dimens.labelFontSize,
+                                    color = uiColors.textSecondary
+                                )
+                            }
+                        }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider(color = uiColors.border, thickness = 0.5.dp)
-                    Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(color = uiColors.border, thickness = 0.5.dp)
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                    if (res.confidence.isNotBlank()) {
+                        // Macronutrientes: tres columnas iguales
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            MacroColumn(label = "Proteína", valor = res.protein, color = uiColors.textPrimary)
+                            MacroColumn(label = "Carbos", valor = res.carbs, color = uiColors.textPrimary)
+                            MacroColumn(label = "Grasas", valor = res.fats, color = uiColors.textPrimary)
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(color = uiColors.border, thickness = 0.5.dp)
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        if (res.confidence.isNotBlank()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Confianza",
+                                    fontSize = dimens.bodyFontSize,
+                                    fontWeight = FontWeight.Bold,
+                                    color = uiColors.textPrimary
+                                )
+                                Text(
+                                    text = res.confidence.replaceFirstChar { it.uppercase() },
+                                    fontSize = dimens.bodyFontSize,
+                                    color = TealMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+
+                        if (res.observation.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = res.observation,
+                                fontSize = dimens.labelFontSize,
+                                color = uiColors.textSecondary
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Button(
+                            onClick = { guardarComida() },
+                            enabled = !guardando && !guardadoOk && !userId.isNullOrBlank(),
+                            modifier = Modifier.fillMaxWidth().height(dimens.buttonHeight),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = TealMedium,
+                                contentColor = Color.White,
+                                disabledContainerColor = uiColors.border
+                            )
                         ) {
                             Text(
-                                text = "Confianza",
-                                fontSize = dimens.bodyFontSize,
+                                text = when {
+                                    guardando -> "Guardando..."
+                                    guardadoOk -> "Guardado ✓"
+                                    else -> "Guardar en mi historial"
+                                },
                                 fontWeight = FontWeight.Bold,
-                                color = uiColors.textPrimary
+                                fontSize = dimens.buttonFontSize
                             )
+                        }
+
+                        if (guardadoOk) {
+                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = res.confidence.replaceFirstChar { it.uppercase() },
-                                fontSize = dimens.bodyFontSize,
-                                color = TealMedium,
+                                text = "Comida guardada en tu historial ✓",
+                                fontSize = dimens.labelFontSize,
+                                color = TealPrimary,
                                 fontWeight = FontWeight.Medium
                             )
                         }
                     }
+                }
+            } else {
+                Spacer(modifier = Modifier.height(16.dp))
 
-                    if (res.observation.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(10.dp))
+                if (comidas.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(uiColors.cardSecondary, RoundedCornerShape(16.dp))
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            text = res.observation,
-                            fontSize = dimens.labelFontSize,
+                            text = mensajeHistorial,
+                            fontSize = dimens.bodyFontSize,
+                            color = uiColors.textMuted
+                        )
+                    }
+                } else {
+                    comidas
+                        .groupBy { it.date }
+                        .toList()
+                        .sortedByDescending { (fecha, _) -> fecha }
+                        .forEach { (fecha, comidasDelDia) ->
+                            DiaDeComidas(
+                                fecha = fecha,
+                                comidasDelDia = comidasDelDia,
+                                uiColors = uiColors,
+                                dimens = dimens,
+                                onEliminar = { comidaParaEliminar = it }
+                            )
+
+                            Spacer(modifier = Modifier.height(18.dp))
+                        }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Button(
+                    onClick = { cargarComidas() },
+                    modifier = Modifier.fillMaxWidth().height(dimens.buttonHeight),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = TealPrimary,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text("Actualizar historial", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        comidaParaEliminar?.let { comida ->
+            AlertDialog(
+                onDismissRequest = { comidaParaEliminar = null },
+                containerColor = uiColors.card,
+                title = {
+                    Text(
+                        text = "Eliminar comida",
+                        color = uiColors.textPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Text(
+                        text = "¿Seguro que quieres eliminar este registro?\n\n" +
+                                "${comida.foodName}\n" +
+                                "${comida.date}\n" +
+                                "${comida.estimatedCalories} kcal",
+                        color = uiColors.textSecondary
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { eliminarComida(comida) }) {
+                        Text(
+                            text = "Eliminar",
+                            color = uiColors.dangerButton,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { comidaParaEliminar = null }) {
+                        Text(
+                            text = "Cancelar",
                             color = uiColors.textSecondary
                         )
                     }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Button(
-                        onClick = { guardarComida() },
-                        enabled = !guardando,
-                        modifier = Modifier.fillMaxWidth().height(dimens.buttonHeight),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = TealMedium,
-                            contentColor = Color.White
-                        )
-                    ) {
-                        Text(
-                            text = if (guardando) "Guardando..." else "Guardar en mi historial",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = dimens.buttonFontSize
-                        )
-                    }
-
-                    if (guardadoOk) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Comida guardada ✓",
-                            fontSize = dimens.labelFontSize,
-                            color = TealPrimary,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
                 }
-            }
+            )
         }
 
         NavigationBar(
@@ -668,10 +809,149 @@ fun CameraScreen(
             containerColor = uiColors.bottomBar,
             contentColor = uiColors.bottomUnselected
         ) {
-            NavigationBarItem(selected = false, onClick = { navController.navigate("home") }, icon = { Icon(Icons.Default.Home, contentDescription = null) }, label = { Text("Home") }, colors = bottomItemColors(uiColors))
-            NavigationBarItem(selected = false, onClick = { navController.navigate("IA") }, icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) }, label = { Text("IA") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.irASeccion("home") }, icon = { Icon(Icons.Default.Home, contentDescription = null) }, label = { Text("Home") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.irASeccion("IA") }, icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) }, label = { Text("IA") }, colors = bottomItemColors(uiColors))
             NavigationBarItem(selected = true, onClick = { }, icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) }, label = { Text("Comida") }, colors = bottomItemColors(uiColors))
-            NavigationBarItem(selected = false, onClick = { navController.navigate("agenda") }, icon = { Icon(Icons.Default.DateRange, contentDescription = null) }, label = { Text("Agenda") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.irASeccion("agenda") }, icon = { Icon(Icons.Default.DateRange, contentDescription = null) }, label = { Text("Agenda") }, colors = bottomItemColors(uiColors))
+        }
+    }
+}
+
+/**
+ * Agrupa en un bloque todas las comidas registradas en una misma fecha,
+ * encabezadas por los totales de ese dia.
+ */
+@Composable
+private fun DiaDeComidas(
+    fecha: String,
+    comidasDelDia: List<MealItem>,
+    uiColors: AppUiColors,
+    dimens: ResponsiveDimens,
+    onEliminar: (MealItem) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = formatearFechaLarga(fecha),
+            fontSize = dimens.bodyFontSize,
+            fontWeight = FontWeight.Bold,
+            color = uiColors.textPrimary
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(uiColors.cardSecondary, RoundedCornerShape(14.dp))
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "${comidasDelDia.sumOf { it.estimatedCalories }} kcal",
+                fontSize = dimens.bodyFontSize,
+                fontWeight = FontWeight.Bold,
+                color = TealPrimary
+            )
+            Text("P: ${comidasDelDia.sumOf { it.protein }}g", fontSize = dimens.labelFontSize, color = uiColors.textSecondary)
+            Text("C: ${comidasDelDia.sumOf { it.carbs }}g", fontSize = dimens.labelFontSize, color = uiColors.textSecondary)
+            Text("G: ${comidasDelDia.sumOf { it.fats }}g", fontSize = dimens.labelFontSize, color = uiColors.textSecondary)
+        }
+
+        comidasDelDia.forEach { comida ->
+            Spacer(modifier = Modifier.height(10.dp))
+
+            MealHistoryCard(
+                comida = comida,
+                uiColors = uiColors,
+                dimens = dimens,
+                onEliminar = { onEliminar(comida) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun MealHistoryCard(
+    comida: MealItem,
+    uiColors: AppUiColors,
+    dimens: ResponsiveDimens,
+    onEliminar: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(uiColors.card, RoundedCornerShape(16.dp))
+            .border(1.dp, uiColors.border, RoundedCornerShape(16.dp))
+            .padding(14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = comida.foodName.ifBlank { "Alimento sin nombre" },
+                    fontSize = dimens.bodyFontSize,
+                    fontWeight = FontWeight.Bold,
+                    color = uiColors.textPrimary
+                )
+
+                val subtitulo = listOfNotNull(
+                    comida.category.takeIf { it.isNotBlank() },
+                    comida.portion.takeIf { it.isNotBlank() }
+                ).joinToString(" · ")
+
+                if (subtitulo.isNotBlank()) {
+                    Text(
+                        text = subtitulo,
+                        fontSize = dimens.labelFontSize,
+                        color = uiColors.textSecondary
+                    )
+                }
+            }
+
+            Text(
+                text = "${comida.estimatedCalories} kcal",
+                fontSize = dimens.bodyFontSize,
+                fontWeight = FontWeight.Bold,
+                color = TealPrimary
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        HorizontalDivider(color = uiColors.border, thickness = 0.5.dp)
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            MacroColumn(label = "Proteína", valor = comida.protein, color = uiColors.textPrimary)
+            MacroColumn(label = "Carbos", valor = comida.carbs, color = uiColors.textPrimary)
+            MacroColumn(label = "Grasas", valor = comida.fats, color = uiColors.textPrimary)
+        }
+
+        if (comida.estimatedCalories > 0 && comida.calorieRange.isNotBlank()) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "Rango estimado: ${comida.calorieRange}",
+                fontSize = dimens.labelFontSize,
+                color = uiColors.textSecondary
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        TextButton(
+            onClick = onEliminar,
+            modifier = Modifier.align(Alignment.End)
+        ) {
+            Text(
+                text = "Eliminar",
+                color = uiColors.dangerButton,
+                fontWeight = FontWeight.Bold,
+                fontSize = dimens.labelFontSize
+            )
         }
     }
 }

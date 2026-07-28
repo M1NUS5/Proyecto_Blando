@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -32,6 +33,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -78,6 +80,7 @@ fun AgendaScreen(navController: NavController) {
     var actividades by remember { mutableStateOf<List<ActivityItem>>(emptyList()) }
     var mensaje by remember { mutableStateOf("Cargando actividades...") }
     var actividadParaEliminar by remember { mutableStateOf<ActivityItem?>(null) }
+    var cargando by remember { mutableStateOf(true) }
 
     val fechaHoy = remember { obtenerFechaActualString() }
     val calendarioHoy = remember { convertirFechaCalendar(fechaHoy) ?: Calendar.getInstance() }
@@ -90,9 +93,11 @@ fun AgendaScreen(navController: NavController) {
         if (userId.isBlank()) {
             mensaje = "No hay sesión iniciada"
             actividades = emptyList()
+            cargando = false
             return
         }
 
+        cargando = true
         mensaje = "Cargando actividades..."
 
         RetrofitClient.instance.getActivities(userId)
@@ -101,6 +106,8 @@ fun AgendaScreen(navController: NavController) {
                     call: Call<List<ActivityItem>>,
                     response: Response<List<ActivityItem>>
                 ) {
+                    cargando = false
+
                     if (response.isSuccessful) {
                         actividades = response.body().orEmpty()
 
@@ -115,6 +122,7 @@ fun AgendaScreen(navController: NavController) {
                 }
 
                 override fun onFailure(call: Call<List<ActivityItem>>, t: Throwable) {
+                    cargando = false
                     mensaje = "Fallo de conexión: ${t.message}"
                 }
             })
@@ -236,6 +244,11 @@ fun AgendaScreen(navController: NavController) {
         ) {
 
             item {
+                EntrenamientoActivoBanner(
+                    navController = navController,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+
                 Text(
                     text = "Agenda / Historial",
                     fontSize = 26.sp,
@@ -459,7 +472,14 @@ fun AgendaScreen(navController: NavController) {
                 )
             }
 
-            if (actividadesDelDia.isEmpty()) {
+            if (cargando) {
+                item {
+                    CargandoAgendaCard(
+                        mensaje = "Cargando tus entrenamientos...",
+                        uiColors = uiColors
+                    )
+                }
+            } else if (actividadesDelDia.isEmpty()) {
                 item {
                     EmptyAgendaCard(
                         mensaje = mensaje,
@@ -556,7 +576,7 @@ fun AgendaScreen(navController: NavController) {
         ) {
             NavigationBarItem(
                 selected = false,
-                onClick = { navController.navigate("home") },
+                onClick = { navController.irASeccion("home") },
                 icon = { Icon(Icons.Default.Home, contentDescription = null) },
                 label = { Text("Home") },
                 colors = agendaBottomItemColors(uiColors)
@@ -564,7 +584,7 @@ fun AgendaScreen(navController: NavController) {
 
             NavigationBarItem(
                 selected = false,
-                onClick = { navController.navigate("IA") },
+                onClick = { navController.irASeccion("IA") },
                 icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
                 label = { Text("IA") },
                 colors = agendaBottomItemColors(uiColors)
@@ -572,7 +592,7 @@ fun AgendaScreen(navController: NavController) {
 
             NavigationBarItem(
                 selected = false,
-                onClick = { navController.navigate("camera") },
+                onClick = { navController.irASeccion("camera") },
                 icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
                 label = { Text("Comida") },
                 colors = agendaBottomItemColors(uiColors)
@@ -896,6 +916,47 @@ fun AgendaInfoBlock(
             fontSize = 14.sp,
             color = uiColors.textSecondary
         )
+    }
+}
+
+/**
+ * Indicador de carga con la misma forma que las tarjetas del historial, para que
+ * el usuario perciba que la informacion esta en camino en lugar de una pantalla
+ * vacia. Es especialmente util cuando el servidor tarda en responder.
+ */
+@Composable
+fun CargandoAgendaCard(
+    mensaje: String,
+    uiColors: AppUiColors
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = uiColors.card),
+        elevation = CardDefaults.cardElevation(5.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(uiColors.card)
+                .padding(24.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(22.dp),
+                strokeWidth = 2.5.dp,
+                color = uiColors.primaryButton
+            )
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Text(
+                text = mensaje,
+                fontSize = 15.sp,
+                color = uiColors.textSecondary
+            )
+        }
     }
 }
 
