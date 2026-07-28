@@ -48,7 +48,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
+import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.JointType
+import com.google.android.gms.maps.model.RoundCap
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.Marker
@@ -112,14 +116,30 @@ fun IAScreen(navController: NavController) {
             return
         }
 
-        if (
-            paceValor.isBlank() ||
-            timeValor.isBlank() ||
-            heartRateValor.isBlank() ||
-            cadenceValor.isBlank() ||
-            accelerationValor.isBlank()
-        ) {
-            limpiarPrediccion("Faltan datos reales para la predicción")
+        // Se nombra el dato ausente en lugar de un aviso generico: sin esa
+        // precision el usuario no sabe si el problema fue el GPS, el reloj o la
+        // duracion del entrenamiento, ni que hacer para obtener una prediccion.
+        val faltantes = buildList {
+            if (paceValor.isBlank()) add("el ritmo")
+            if (timeValor.isBlank()) add("el tiempo")
+            if (heartRateValor.isBlank()) add("la frecuencia cardiaca")
+            if (cadenceValor.isBlank()) add("la cadencia")
+            if (accelerationValor.isBlank()) add("la aceleración")
+        }
+
+        if (faltantes.isNotEmpty()) {
+            val listado = when (faltantes.size) {
+                1 -> faltantes.first()
+                else -> faltantes.dropLast(1).joinToString(", ") + " y " + faltantes.last()
+            }
+
+            val ayuda = if (paceValor.isBlank()) {
+                " El ritmo necesita al menos 15 segundos y 30 metros de recorrido con buena señal de GPS."
+            } else {
+                " Revisa que el reloj esté conectado y colocado correctamente."
+            }
+
+            limpiarPrediccion("No se puede analizar: falta $listado.$ayuda")
             return
         }
 
@@ -238,34 +258,27 @@ fun IAScreen(navController: NavController) {
     val hayRecorrido = RunDataStore.hasFinishedRun && RunDataStore.finishedPathPoints.size >= 2
     val puntosRecorrido = if (hayRecorrido) RunDataStore.finishedPathPoints else emptyList()
 
-    var centroRecorrido = LatLng(31.6904, -106.4245)
-    var zoomRecorrido = 15f
-
-    if (hayRecorrido && puntosRecorrido.isNotEmpty()) {
-        var maxLat = puntosRecorrido[0].latitude
-        var minLat = puntosRecorrido[0].latitude
-        var maxLng = puntosRecorrido[0].longitude
-        var minLng = puntosRecorrido[0].longitude
-        for (punto in puntosRecorrido) {
-            if (punto.latitude > maxLat) maxLat = punto.latitude
-            if (punto.latitude < minLat) minLat = punto.latitude
-            if (punto.longitude > maxLng) maxLng = punto.longitude
-            if (punto.longitude < minLng) minLng = punto.longitude
-        }
-        centroRecorrido = LatLng((maxLat + minLat) / 2.0, (maxLng + minLng) / 2.0)
-        val latDiff = maxLat - minLat
-        val lngDiff = maxLng - minLng
-        zoomRecorrido = when {
-            latDiff < 0.002 && lngDiff < 0.002 -> 17f
-            latDiff < 0.005 && lngDiff < 0.005 -> 16f
-            latDiff < 0.01  && lngDiff < 0.01  -> 15f
-            latDiff < 0.03  && lngDiff < 0.03  -> 14f
-            else -> 13f
-        }
+    val marcasKilometro = remember(puntosRecorrido) {
+        RecorridoMapaUtils.marcasDeKilometro(puntosRecorrido)
     }
 
     val camaraRecorrido = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(centroRecorrido, zoomRecorrido)
+        position = CameraPosition.fromLatLngZoom(LatLng(31.6904, -106.4245), 15f)
+    }
+
+    // El encuadre se calcula a partir de los limites reales del trazo en vez de
+    // estimar un nivel de acercamiento por la diferencia de coordenadas: asi el
+    // recorrido siempre se ve completo y centrado, sin quedar cortado ni
+    // demasiado lejano. El margen deja aire alrededor de la linea.
+    LaunchedEffect(puntosRecorrido) {
+        val limites = RecorridoMapaUtils.limitesDelRecorrido(puntosRecorrido) ?: return@LaunchedEffect
+
+        runCatching {
+            camaraRecorrido.animate(
+                update = CameraUpdateFactory.newLatLngBounds(limites, 90),
+                durationMs = 700
+            )
+        }
     }
 
     Box(
@@ -309,9 +322,54 @@ fun IAScreen(navController: NavController) {
                             .clip(RoundedCornerShape(16.dp)),
                         cameraPositionState = camaraRecorrido
                     ) {
-                        Polyline(points = puntosRecorrido, width = 10f, color = Color(0xFF26A69A))
-                        Marker(state = MarkerState(position = puntosRecorrido.first()), title = "Inicio")
-                        Marker(state = MarkerState(position = puntosRecorrido.last()), title = "Fin")
+                        // Trazo con borde: una linea gruesa oscura debajo y la
+                        // linea de color encima. Da contraste sobre cualquier
+                        // fondo del mapa, que de otro modo puede confundirse con
+                        // calles o areas verdes.
+                        Polyline(
+                            points = puntosRecorrido,
+                            width = 18f,
+                            color = Color(0xFF00332F),
+                            jointType = JointType.ROUND,
+                            startCap = RoundCap(),
+                            endCap = RoundCap()
+                        )
+
+                        Polyline(
+                            points = puntosRecorrido,
+                            width = 11f,
+                            color = Color(0xFF26A69A),
+                            jointType = JointType.ROUND,
+                            startCap = RoundCap(),
+                            endCap = RoundCap()
+                        )
+
+                        marcasKilometro.forEach { marca ->
+                            Marker(
+                                state = MarkerState(position = marca.posicion),
+                                title = "${marca.kilometro} km",
+                                icon = BitmapDescriptorFactory.defaultMarker(
+                                    BitmapDescriptorFactory.HUE_AZURE
+                                ),
+                                anchor = androidx.compose.ui.geometry.Offset(0.5f, 0.5f)
+                            )
+                        }
+
+                        Marker(
+                            state = MarkerState(position = puntosRecorrido.first()),
+                            title = "Inicio",
+                            icon = BitmapDescriptorFactory.defaultMarker(
+                                BitmapDescriptorFactory.HUE_GREEN
+                            )
+                        )
+
+                        Marker(
+                            state = MarkerState(position = puntosRecorrido.last()),
+                            title = "Fin",
+                            icon = BitmapDescriptorFactory.defaultMarker(
+                                BitmapDescriptorFactory.HUE_RED
+                            )
+                        )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                 }

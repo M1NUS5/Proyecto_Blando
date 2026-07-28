@@ -28,12 +28,15 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -757,127 +760,159 @@ fun ActivityHistoryCard(
     uiColors: AppUiColors,
     onDeleteClick: () -> Unit
 ) {
+    // Con varias sesiones al dia, mostrar cada una desplegada obligaba a
+    // recorrer pantallas enteras para encontrar una. La tarjeta se muestra
+    // resumida y solo despliega el detalle al tocarla.
+    var expandida by remember { mutableStateOf(false) }
+
     val distanciaMostrada = convertirDistancia(actividad.distance, unidadPrincipal)
     val unidadDistancia = if (unidadPrincipal == "millas") "mi" else "km"
 
-    ModernAgendaCard(
-        title = actividad.title.ifBlank { "Entrenamiento finalizado" },
-        subtitle = actividad.date,
-        uiColors = uiColors
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expandida = !expandida },
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = uiColors.card),
+        elevation = CardDefaults.cardElevation(6.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        Column(
+            modifier = Modifier
+                .background(uiColors.card)
+                .padding(18.dp)
         ) {
-            AgendaStatCard(
-                modifier = Modifier.weight(1f),
-                label = "Distancia",
-                value = "${String.format(Locale.US, "%.2f", distanciaMostrada)} $unidadDistancia",
-                uiColors = uiColors
-            )
+            // ---------------- Resumen siempre visible ----------------
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = actividad.title.ifBlank { "Entrenamiento finalizado" },
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = uiColors.textPrimary
+                    )
 
-            AgendaStatCard(
-                modifier = Modifier.weight(1f),
-                label = "Duración",
-                value = "${String.format(Locale.US, "%.1f", actividad.duration)} min",
-                uiColors = uiColors
-            )
-        }
+                    Spacer(modifier = Modifier.height(4.dp))
 
-        Spacer(modifier = Modifier.height(10.dp))
+                    // Los tres datos que identifican la sesion, en una linea.
+                    Text(
+                        text = listOf(
+                            "${String.format(Locale.US, "%.2f", distanciaMostrada)} $unidadDistancia",
+                            "${String.format(Locale.US, "%.1f", actividad.duration)} min",
+                            actividad.iaLabel.ifBlank { "Sin análisis" }
+                        ).joinToString("  ·  "),
+                        fontSize = 13.sp,
+                        color = uiColors.textSecondary
+                    )
+                }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            AgendaStatCard(
-                modifier = Modifier.weight(1f),
-                label = "Pace",
-                value = if (actividad.pace > 0.0) {
-                    String.format(Locale.US, "%.2f", actividad.pace)
-                } else {
-                    "--"
-                },
-                uiColors = uiColors
-            )
+                Icon(
+                    imageVector = if (expandida) {
+                        Icons.Default.KeyboardArrowUp
+                    } else {
+                        Icons.Default.KeyboardArrowDown
+                    },
+                    contentDescription = if (expandida) "Ocultar detalle" else "Ver detalle",
+                    tint = uiColors.textMuted
+                )
+            }
 
-            AgendaStatCard(
-                modifier = Modifier.weight(1f),
-                label = "Pasos",
-                value = if (actividad.steps > 0) actividad.steps.toString() else "--",
-                uiColors = uiColors
-            )
-        }
+            if (!expandida) return@Column
 
-        Spacer(modifier = Modifier.height(10.dp))
+            // ---------------- Detalle desplegable ----------------
+            Spacer(modifier = Modifier.height(14.dp))
+            HorizontalDivider(color = uiColors.border, thickness = 0.5.dp)
+            Spacer(modifier = Modifier.height(14.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            AgendaStatCard(
-                modifier = Modifier.weight(1f),
-                label = "BPM",
-                value = if (actividad.bpm > 0) actividad.bpm.toString() else "--",
-                uiColors = uiColors
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                AgendaStatCard(
+                    modifier = Modifier.weight(1f),
+                    label = "Pace",
+                    value = if (actividad.pace > 0.0) {
+                        String.format(Locale.US, "%.2f", actividad.pace)
+                    } else {
+                        "--"
+                    },
+                    uiColors = uiColors
+                )
 
-            AgendaStatCard(
-                modifier = Modifier.weight(1f),
-                label = "Acel.",
-                value = if (actividad.acceleration > 0.0) {
-                    String.format(Locale.US, "%.2f", actividad.acceleration)
-                } else {
-                    "--"
-                },
-                uiColors = uiColors
-            )
-        }
+                AgendaStatCard(
+                    modifier = Modifier.weight(1f),
+                    label = "Pasos",
+                    value = if (actividad.steps > 0) actividad.steps.toString() else "--",
+                    uiColors = uiColors
+                )
+            }
 
-        if (actividad.iaLabel.isNotBlank() || actividad.iaRecommendation.isNotBlank()) {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            AgendaInfoBlock(
-                title = "Análisis IA",
-                text = buildString {
-                    if (actividad.iaLabel.isNotBlank()) {
-                        append("Estado: ${actividad.iaLabel}")
-                    }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                AgendaStatCard(
+                    modifier = Modifier.weight(1f),
+                    label = "BPM",
+                    value = if (actividad.bpm > 0) actividad.bpm.toString() else "--",
+                    uiColors = uiColors
+                )
 
-                    if (actividad.iaRecommendation.isNotBlank()) {
-                        if (isNotBlank()) append("\n")
-                        append("Recomendación: ${actividad.iaRecommendation}")
-                    }
-                },
-                uiColors = uiColors
-            )
-        }
+                AgendaStatCard(
+                    modifier = Modifier.weight(1f),
+                    label = "Acel.",
+                    value = if (actividad.acceleration > 0.0) {
+                        String.format(Locale.US, "%.2f", actividad.acceleration)
+                    } else {
+                        "--"
+                    },
+                    uiColors = uiColors
+                )
+            }
 
-        if (actividad.notes.isNotBlank()) {
-            Spacer(modifier = Modifier.height(12.dp))
+            if (actividad.iaRecommendation.isNotBlank()) {
+                Spacer(modifier = Modifier.height(12.dp))
 
-            AgendaInfoBlock(
-                title = "Notas",
-                text = actividad.notes,
-                uiColors = uiColors
-            )
-        }
+                AgendaInfoBlock(
+                    title = "Análisis IA",
+                    text = buildString {
+                        append(actividad.iaRecommendation)
 
-        Spacer(modifier = Modifier.height(14.dp))
+                        if (actividad.iaConfidence > 0.0) {
+                            append(System.lineSeparator())
+                            append(
+                                "Confianza: " +
+                                    String.format(Locale.US, "%.1f%%", actividad.iaConfidence * 100)
+                            )
+                        }
+                    },
+                    uiColors = uiColors
+                )
+            }
 
-        Button(
-            onClick = onDeleteClick,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = uiColors.dangerButton,
-                contentColor = Color.White
-            )
-        ) {
-            Text(
-                text = "Eliminar entrenamiento",
-                fontWeight = FontWeight.Bold
-            )
+            // Las notas se omiten a proposito: repiten los mismos valores que ya
+            // aparecen arriba en los recuadros, y duplicaban el alto de la tarjeta.
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Button(
+                onClick = onDeleteClick,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = uiColors.dangerButton,
+                    contentColor = Color.White
+                )
+            ) {
+                Text(
+                    text = "Eliminar entrenamiento",
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }
