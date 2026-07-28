@@ -5,6 +5,17 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 
+    <!--
+        Servicio en primer plano del entrenamiento: mantiene el registro de la
+        carrera cuando el usuario sale de la aplicacion y publica la
+        notificacion con tiempo, distancia y pasos.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+
+    <!-- Necesario a partir de Android 13 para poder mostrar la notificacion. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
     <application
         android:allowBackup="true"
         android:usesCleartextTraffic="true"
@@ -51,6 +62,16 @@
             </intent-filter>
 
         </service>
+
+        <!--
+            No se expone a otras aplicaciones: solo ALYRA lo arranca y lo
+            detiene. El tipo "location" es obligatorio desde Android 14 para
+            que el servicio pueda seguir recibiendo ubicaciones.
+        -->
+        <service
+            android:name=".EntrenamientoService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
     </application>
 

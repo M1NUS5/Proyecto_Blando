@@ -13,6 +13,16 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!--
+        Servicio en primer plano del entrenamiento: mantiene activos los
+        sensores de pasos, aceleracion y GPS cuando la pantalla se apaga.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!-- Necesario desde Android 13 para mostrar la notificacion del servicio. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <uses-feature android:name="android.hardware.type.watch" />
 
     <application
@@ -37,6 +47,11 @@
             </intent-filter>
 
         </activity>
+
+        <service
+            android:name=".presentation.EntrenamientoWearService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
     </application>
 

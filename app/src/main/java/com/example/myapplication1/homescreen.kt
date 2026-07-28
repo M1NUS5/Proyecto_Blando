@@ -3,6 +3,7 @@ package com.example.myapplication1
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
+import android.os.Build
 import android.location.Location
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -213,25 +214,32 @@ fun HomeScreen(navController: NavController) {
                     0f
                 }
 
-                val gpsValido = HomeSensorPrecisionUtils.puntoGpsValido(
-                    accuracy = accuracy,
-                    metrosEntrePuntos = metros,
-                    segundosEntrePuntos = segundosEntrePuntos,
-                    pasosActuales = pasosActuales
-                )
+                when (
+                    HomeSensorPrecisionUtils.evaluarPuntoGps(
+                        accuracy = accuracy,
+                        metrosEntrePuntos = metros,
+                        segundosEntrePuntos = segundosEntrePuntos,
+                        pasosActuales = pasosActuales
+                    )
+                ) {
+                    // Se conserva la referencia anterior a proposito: asi el
+                    // siguiente punto confiable mide el tramo completo y no se
+                    // pierde el avance recorrido mientras se filtraba ruido.
+                    HomeSensorPrecisionUtils.ResultadoGps.DESCARTAR -> Unit
 
-                if (!gpsValido) {
-                    ultimaUbicacionTelefono = location
-                    RunDataStore.currentTimeMs = System.currentTimeMillis()
-                    return
+                    HomeSensorPrecisionUtils.ResultadoGps.REANCLAR -> {
+                        ultimaUbicacionTelefono = location
+                    }
+
+                    HomeSensorPrecisionUtils.ResultadoGps.SUMAR -> {
+                        RunDataStore.phoneDistanceMeters += metros
+                        ultimaUbicacionTelefono = location
+                        pathPoints = pathPoints + newPoint
+
+                        cameraPositionState.position =
+                            CameraPosition.fromLatLngZoom(newPoint, 17f)
+                    }
                 }
-
-                RunDataStore.phoneDistanceMeters += metros
-                ultimaUbicacionTelefono = location
-                pathPoints = pathPoints + newPoint
-
-                cameraPositionState.position =
-                    CameraPosition.fromLatLngZoom(newPoint, 17f)
 
                 RunDataStore.currentTimeMs = System.currentTimeMillis()
             }
@@ -261,6 +269,35 @@ fun HomeScreen(navController: NavController) {
         }
     }
 
+    // Desde Android 13 la notificacion del entrenamiento requiere permiso
+    // explicito. Si el usuario lo rechaza el entrenamiento sigue registrandose
+    // igual: solo se pierde la consulta rapida desde la barra de notificaciones,
+    // por eso no se bloquea nada ni se insiste.
+    val permisoNotificacionesLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { concedido ->
+        if (!concedido) {
+            Toast.makeText(
+                context,
+                "Sin permiso de notificaciones no verás el entrenamiento en la barra de estado.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val concedido = ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!concedido) {
+                permisoNotificacionesLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
     @SuppressLint("MissingPermission")
     fun iniciarEntrenamientoDesdeTelefono(
         enviarAlReloj: Boolean,
@@ -286,6 +323,10 @@ fun HomeScreen(navController: NavController) {
         aceleracionFiltrada = 0f
 
         RunDataStore.iniciarNuevoEntrenamiento()
+
+        // El servicio se arranca despues de fijar el estado para que la primera
+        // notificacion ya muestre el entrenamiento en curso.
+        EntrenamientoService.iniciar(context)
     }
 
     fun reanudarEntrenamientoDesdeTelefono(
@@ -308,6 +349,9 @@ fun HomeScreen(navController: NavController) {
 
         ultimaUbicacionTelefono = null
         RunDataStore.reanudarEntrenamiento()
+
+        // Si el servicio se hubiera detenido, se vuelve a levantar al reanudar.
+        EntrenamientoService.iniciar(context)
     }
 
     fun pausarEntrenamientoDesdeTelefono(enviarAlReloj: Boolean = true) {
@@ -352,6 +396,43 @@ fun HomeScreen(navController: NavController) {
 
         val paceTextoNota = HomeSensorPrecisionUtils.paceTexto(finalPace)
 
+        // Clasificacion del ritmo con el modelo de IA, para que el entrenamiento
+        // quede registrado junto con su analisis y no solo con las metricas crudas.
+        // Solo se ejecuta cuando las entradas son validas: si el pace, los latidos
+        // o la cadencia no se pudieron calcular, la actividad se guarda sin
+        // prediccion en lugar de almacenar un resultado sin sustento.
+        val prediccionIA: PaceResult? = if (
+            settings.prediccionIAActiva &&
+            finalPace > 0.0 &&
+            bpmReloj > 0 &&
+            cadenciaFinal > 0.0
+        ) {
+            runCatching {
+                PaceClassifierProvider.obtener(context).predict(
+                    PaceInput(
+                        pace = finalPace.toFloat(),
+                        heartRate = bpmReloj.toFloat(),
+                        cadence = cadenciaFinal.toFloat(),
+                        acceleration = aceleracionReloj,
+                        time = finalTimeSeconds.toFloat()
+                    )
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
+
+        val recomendacionIA = prediccionIA?.let {
+            recomendacionParaClase(it.predictedClass)
+        }
+
+        val analisisIANota = if (prediccionIA != null) {
+            "Análisis IA: ${prediccionIA.label} " +
+                "(${String.format(Locale.US, "%.1f", prediccionIA.confidence * 100f)}% de confianza)"
+        } else {
+            "Análisis IA: no disponible"
+        }
+
         val notasConDatosReloj = """
             Actividad guardada automáticamente desde Home.
             Estado detectado: $estadoDetectado
@@ -361,6 +442,7 @@ fun HomeScreen(navController: NavController) {
             Cadencia: ${String.format(Locale.US, "%.1f", cadenciaFinal)}
             Aceleración: ${String.format(Locale.US, "%.2f", aceleracionReloj)}
             Pace seguro: $paceTextoNota
+            $analisisIANota
         """.trimIndent()
 
         val actividad = ActivityRequest(
@@ -375,10 +457,10 @@ fun HomeScreen(navController: NavController) {
             steps = pasosReloj,
             cadence = cadenciaFinal,
             acceleration = aceleracionReloj.toDouble(),
-            iaClass = null,
-            iaLabel = estadoDetectado,
-            iaConfidence = 0.0,
-            iaRecommendation = consejoDetectado
+            iaClass = prediccionIA?.predictedClass,
+            iaLabel = prediccionIA?.label ?: estadoDetectado,
+            iaConfidence = prediccionIA?.confidence?.toDouble() ?: 0.0,
+            iaRecommendation = recomendacionIA ?: consejoDetectado
         )
 
         RetrofitClient.instance.saveActivity(actividad)
@@ -470,6 +552,9 @@ fun HomeScreen(navController: NavController) {
 
         RunDataStore.finalizarEntrenamiento()
 
+        // Al finalizar se retira la notificacion y se libera el servicio.
+        EntrenamientoService.detener(context)
+
         if (settings.guardarUltimaCorrida && settings.prediccionIAActiva) {
             RunDataStore.lastPace = finalPace.toFloat()
             RunDataStore.lastTime = finalTimeSeconds.toFloat()
@@ -498,7 +583,7 @@ fun HomeScreen(navController: NavController) {
         )
 
         if (settings.prediccionIAActiva) {
-            navController.navigate("IA")
+            navController.irASeccion("IA")
         } else {
             Toast.makeText(
                 context,
@@ -506,7 +591,7 @@ fun HomeScreen(navController: NavController) {
                 Toast.LENGTH_SHORT
             ).show()
 
-            navController.navigate("agenda")
+            navController.irASeccion("agenda")
         }
     }
 
@@ -972,10 +1057,10 @@ fun HomeScreen(navController: NavController) {
             containerColor = uiColors.bottomBar,
             contentColor = uiColors.bottomUnselected
         ) {
-            NavigationBarItem(selected = true, onClick = { navController.navigate("home") }, icon = { Icon(Icons.Default.Home, contentDescription = null) }, label = { Text("Home") }, colors = bottomItemColors(uiColors))
-            NavigationBarItem(selected = false, onClick = { navController.navigate("IA") }, icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) }, label = { Text("IA") }, colors = bottomItemColors(uiColors))
-            NavigationBarItem(selected = false, onClick = { navController.navigate("camera") }, icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) }, label = { Text("Comida") }, colors = bottomItemColors(uiColors))
-            NavigationBarItem(selected = false, onClick = { navController.navigate("agenda") }, icon = { Icon(Icons.Default.DateRange, contentDescription = null) }, label = { Text("Agenda") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = true, onClick = { navController.irASeccion("home") }, icon = { Icon(Icons.Default.Home, contentDescription = null) }, label = { Text("Home") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.irASeccion("IA") }, icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) }, label = { Text("IA") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.irASeccion("camera") }, icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) }, label = { Text("Comida") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.irASeccion("agenda") }, icon = { Icon(Icons.Default.DateRange, contentDescription = null) }, label = { Text("Agenda") }, colors = bottomItemColors(uiColors))
         }
     }
 }
@@ -1052,7 +1137,7 @@ fun HomeTopBar(
             IconButton(onClick = { navController.navigate("profile") }) {
                 Icon(
                     Icons.Default.AccountCircle,
-                    contentDescription = null,
+                    contentDescription = "Mi perfil",
                     tint = Color.White
                 )
             }
@@ -1639,23 +1724,76 @@ object HomeSensorPrecisionUtils {
         return String.format(Locale.US, "%.2f", limpia)
     }
 
-    fun puntoGpsValido(
+    /**
+     * Resultado de evaluar una lectura del GPS frente a la ultima confiable.
+     *
+     * La distincion entre [DESCARTAR] y [REANCLAR] es la que evita perder
+     * distancia: al descartar se conserva el punto de referencia anterior, de
+     * modo que el siguiente punto valido mide el tramo completo en lugar de
+     * solo su ultima parte.
+     */
+    enum class ResultadoGps {
+        /** Lectura confiable: su distancia se suma al recorrido. */
+        SUMAR,
+
+        /** Lectura poco confiable o movimiento aun insuficiente: se conserva la referencia. */
+        DESCARTAR,
+
+        /** Pasó demasiado tiempo: se toma como nueva referencia sin sumar distancia. */
+        REANCLAR
+    }
+
+    /**
+     * Piso minimo de desplazamiento, en metros.
+     *
+     * El umbral real es el mayor entre este valor y la precision informada por
+     * el GPS: si el receptor declara un error de 5 m, cualquier movimiento
+     * menor a 5 m es indistinguible de su propio ruido y sumarlo infla la
+     * distancia. Con umbral fijo de 1.2 m el error caminando despacio llegaba
+     * a superar el 20%.
+     */
+    private const val MINIMO_METROS = 2.5f
+
+    /** Velocidad maxima creible corriendo, en metros por segundo (27 km/h). */
+    private const val MAXIMA_VELOCIDAD_MPS = 7.5f
+
+    /** Por debajo de esta velocidad se asume que el usuario esta detenido. */
+    private const val MINIMA_VELOCIDAD_MPS = 0.25f
+
+    /** Antigüedad maxima de la referencia antes de volver a anclarla. */
+    private const val MAXIMOS_SEGUNDOS_REFERENCIA = 30f
+
+    fun evaluarPuntoGps(
         accuracy: Float,
         metrosEntrePuntos: Float,
         segundosEntrePuntos: Float,
         pasosActuales: Int
-    ): Boolean {
-        if (pasosActuales <= 0) return false
-        if (accuracy > 18f) return false
-        if (metrosEntrePuntos < 1.2f) return false
-        if (metrosEntrePuntos > 25f) return false
-        if (segundosEntrePuntos <= 0f) return false
+    ): ResultadoGps {
+        // Sin pasos registrados no hay desplazamiento real: lo que mueve al
+        // punto es la deriva del GPS, no el usuario.
+        if (pasosActuales <= 0) return ResultadoGps.DESCARTAR
+
+        if (accuracy > 18f) return ResultadoGps.DESCARTAR
+
+        // Una referencia muy antigua ya no sirve para estimar velocidad; se
+        // reancla sin sumar para no arrastrar un tramo sin respaldo.
+        if (segundosEntrePuntos > MAXIMOS_SEGUNDOS_REFERENCIA) return ResultadoGps.REANCLAR
+
+        if (segundosEntrePuntos <= 0f) return ResultadoGps.DESCARTAR
 
         val velocidadMps = metrosEntrePuntos / segundosEntrePuntos
 
-        if (velocidadMps < 0.35f) return false
-        if (velocidadMps > 7.5f) return false
+        // Salto imposible: error tipico del GPS entre edificios.
+        if (velocidadMps > MAXIMA_VELOCIDAD_MPS) return ResultadoGps.DESCARTAR
 
-        return true
+        // Usuario detenido: se conserva la referencia para no acumular deriva.
+        if (velocidadMps < MINIMA_VELOCIDAD_MPS) return ResultadoGps.DESCARTAR
+
+        // Movimiento aun dentro del margen de error del receptor: se conserva la
+        // referencia y se acumula hasta que el desplazamiento supere ese margen.
+        val minimoExigido = maxOf(MINIMO_METROS, accuracy)
+        if (metrosEntrePuntos < minimoExigido) return ResultadoGps.DESCARTAR
+
+        return ResultadoGps.SUMAR
     }
 }

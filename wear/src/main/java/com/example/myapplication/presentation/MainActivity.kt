@@ -149,6 +149,11 @@ fun PantallaReloj() {
     var bpmMuestras by remember { mutableIntStateOf(0) }
     var bpmMaximo by remember { mutableIntStateOf(0) }
 
+    /** Ultimas lecturas crudas del sensor, para filtrar por mediana. */
+    val bpmRecientes = remember { ArrayDeque<Int>() }
+    var bpmUltimaLecturaMs by remember { mutableLongStateOf(0L) }
+    var bpmRechazosSeguidos by remember { mutableIntStateOf(0) }
+
     var pasos by remember { mutableIntStateOf(0) }
     var pasosBase by remember { mutableIntStateOf(-1) }
     var pasosGuardados by remember { mutableIntStateOf(0) }
@@ -182,15 +187,58 @@ fun PantallaReloj() {
         }
     }
 
+    /**
+     * Procesa una lectura del sensor cardiaco aplicando dos filtros.
+     *
+     * El sensor optico de muneca entrega lecturas sueltas erroneas cuando el
+     * brazo se mueve o el contacto con la piel varia. Sin filtrar, esos valores
+     * se muestran tal cual y contaminan tanto el promedio como el maximo de la
+     * sesion.
+     *
+     * 1. **Limite de variacion.** El pulso humano no cambia mas de unos pocos
+     *    latidos por segundo. Una lectura que se aleja demasiado de la anterior
+     *    en muy poco tiempo es un artefacto y se descarta. Para no quedar
+     *    atrapado en un valor equivocado, tras varios rechazos seguidos se
+     *    acepta la lectura y se resincroniza.
+     *
+     * 2. **Mediana movil.** El valor mostrado es la mediana de las ultimas
+     *    lecturas y no la mas reciente. La mediana ignora por completo un dato
+     *    aislado fuera de rango, a diferencia del promedio, que se desplaza con
+     *    el.
+     */
     fun registrarBpm(nuevoBpm: Int) {
         if (nuevoBpm !in 35..220) return
 
-        bpm = nuevoBpm
-        bpmSuma += nuevoBpm
+        val ahora = System.currentTimeMillis()
+
+        if (bpm > 0 && bpmUltimaLecturaMs > 0L) {
+            val segundos = ((ahora - bpmUltimaLecturaMs) / 1000.0).coerceAtLeast(0.5)
+            val cambioPermitido = (MAXIMO_CAMBIO_BPM_POR_SEGUNDO * segundos).coerceAtLeast(6.0)
+
+            if (abs(nuevoBpm - bpm) > cambioPermitido &&
+                bpmRechazosSeguidos < MAXIMOS_RECHAZOS_SEGUIDOS
+            ) {
+                bpmRechazosSeguidos += 1
+                return
+            }
+        }
+
+        bpmRechazosSeguidos = 0
+        bpmUltimaLecturaMs = ahora
+
+        bpmRecientes.addLast(nuevoBpm)
+        if (bpmRecientes.size > VENTANA_MEDIANA_BPM) {
+            bpmRecientes.removeFirst()
+        }
+
+        val bpmFiltrado = bpmRecientes.sorted()[bpmRecientes.size / 2]
+
+        bpm = bpmFiltrado
+        bpmSuma += bpmFiltrado
         bpmMuestras += 1
 
-        if (nuevoBpm > bpmMaximo) {
-            bpmMaximo = nuevoBpm
+        if (bpmFiltrado > bpmMaximo) {
+            bpmMaximo = bpmFiltrado
         }
     }
 
@@ -268,6 +316,10 @@ fun PantallaReloj() {
         bpmMuestras = 0
         bpmMaximo = 0
 
+        bpmRecientes.clear()
+        bpmUltimaLecturaMs = 0L
+        bpmRechazosSeguidos = 0
+
         pasos = 0
         pasosBase = -1
         pasosGuardados = 0
@@ -296,6 +348,9 @@ fun PantallaReloj() {
                 origen = ORIGEN_RELOJ
             )
         }
+
+        // Mantiene sensores y GPS activos aunque se apague la pantalla.
+        EntrenamientoWearService.iniciar(context)
 
         estadoEntrenamiento = "CORRIENDO"
         reiniciarDatosEntrenamiento()
@@ -360,6 +415,9 @@ fun PantallaReloj() {
     fun reanudarEntrenamiento(enviarAlTelefono: Boolean) {
         if (estadoEntrenamiento != "PAUSADO") return
 
+        // Si el servicio se hubiera detenido, se levanta de nuevo al reanudar.
+        EntrenamientoWearService.iniciar(context)
+
         if (enviarAlTelefono) {
             enviarComandoEntrenamiento(
                 context = context,
@@ -395,6 +453,9 @@ fun PantallaReloj() {
                 origen = ORIGEN_RELOJ
             )
         }
+
+        // Libera el bloqueo de procesador y retira la notificacion.
+        EntrenamientoWearService.detener(context)
 
         if (estadoEntrenamiento == "CORRIENDO" && inicioSegmentoMs > 0L) {
             val ahora = System.currentTimeMillis()
@@ -501,11 +562,20 @@ fun PantallaReloj() {
                 override fun onSensorChanged(event: SensorEvent) {
                     when (event.sensor.type) {
 
+                        // El contador acumulado es la fuente mas confiable, pero el
+                        // hardware lo entrega con retraso. Cuando llega, corrige el
+                        // valor que el detector fue mostrando en vivo.
                         Sensor.TYPE_STEP_COUNTER -> {
                             val totalPasos = event.values[0].toInt()
 
                             if (pasosBase == -1) {
-                                pasosBase = totalPasos
+                                // La referencia se ajusta restando lo que el
+                                // detector ya conto en esta sesion. Si el
+                                // contador tarda en entregar su primera lectura,
+                                // esos pasos seguirian siendo validos en lugar
+                                // de reiniciarse a cero.
+                                val yaContados = (pasos - pasosGuardados).coerceAtLeast(0)
+                                pasosBase = totalPasos - yaContados
                             }
 
                             val pasosCalculados = pasosGuardados + (totalPasos - pasosBase)
@@ -523,11 +593,12 @@ fun PantallaReloj() {
                             }
                         }
 
+                        // El detector emite un evento por cada paso en cuanto ocurre.
+                        // Es lo que hace que la cuenta se mueva de inmediato al
+                        // caminar, en lugar de esperar a que el contador reporte.
                         Sensor.TYPE_STEP_DETECTOR -> {
-                            if (!usaStepCounter) {
-                                pasos += 1
-                                mensajePasos = "Pasos reales"
-                            }
+                            pasos += 1
+                            mensajePasos = "Pasos reales"
                         }
 
                         Sensor.TYPE_LINEAR_ACCELERATION -> {
@@ -565,29 +636,46 @@ fun PantallaReloj() {
                 override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
             }
 
+            // Se registran los dos sensores de pasos a la vez y no uno u otro:
+            //
+            //  - El detector responde paso a paso, para que la cuenta avance en
+            //    el momento en que el usuario camina.
+            //  - El contador acumulado llega despues y corrige el total, porque
+            //    es mas preciso a lo largo del entrenamiento.
+            //
+            // El ultimo parametro es la latencia maxima de reporte en
+            // microsegundos: en cero se pide al sistema que no agrupe lecturas.
+            // Sin el, el reloj puede guardar los pasos durante decenas de
+            // segundos antes de entregarlos, y la pantalla parece congelada.
             sensorStepCounter?.let {
                 sensorManager.registerListener(
                     sensorListener,
                     it,
-                    SensorManager.SENSOR_DELAY_NORMAL
+                    SensorManager.SENSOR_DELAY_NORMAL,
+                    0
                 )
             }
 
-            if (sensorStepCounter == null) {
-                sensorStepDetector?.let {
-                    sensorManager.registerListener(
-                        sensorListener,
-                        it,
-                        SensorManager.SENSOR_DELAY_NORMAL
-                    )
-                }
+            sensorStepDetector?.let {
+                sensorManager.registerListener(
+                    sensorListener,
+                    it,
+                    SensorManager.SENSOR_DELAY_FASTEST,
+                    0
+                )
             }
 
+            // La aceleracion se usa como promedio del entrenamiento, no para
+            // detectar gestos, por lo que no requiere la frecuencia mas alta.
+            // Con SENSOR_DELAY_GAME el reloj entregaba unas cincuenta lecturas
+            // por segundo; ahora que el procesador se mantiene despierto durante
+            // toda la sesion, esa frecuencia consumia bateria sin aportar
+            // precision al promedio.
             sensorMovimiento?.let {
                 sensorManager.registerListener(
                     sensorListener,
                     it,
-                    SensorManager.SENSOR_DELAY_GAME
+                    SensorManager.SENSOR_DELAY_UI
                 )
             }
 
@@ -638,22 +726,32 @@ fun PantallaReloj() {
                     0f
                 }
 
-                val puntoValido = PrecisionWearUtils.puntoGpsValido(
-                    accuracy = accuracy,
-                    metrosEntrePuntos = metros,
-                    segundosEntrePuntos = segundosEntrePuntos,
-                    pasos = pasos
-                )
+                when (
+                    PrecisionWearUtils.evaluarPuntoGps(
+                        accuracy = accuracy,
+                        metrosEntrePuntos = metros,
+                        segundosEntrePuntos = segundosEntrePuntos,
+                        pasos = pasos
+                    )
+                ) {
+                    // Se conserva la referencia anterior a proposito: asi el
+                    // siguiente punto confiable mide el tramo completo y no se
+                    // pierde el avance recorrido mientras se filtraba ruido.
+                    PrecisionWearUtils.ResultadoGps.DESCARTAR -> {
+                        mensajeGps = "GPS filtrando ruido"
+                    }
 
-                if (!puntoValido) {
-                    mensajeGps = "GPS filtrando ruido"
-                    ultimaUbicacion = nuevaUbicacion
-                    return@LocationListener
+                    PrecisionWearUtils.ResultadoGps.REANCLAR -> {
+                        ultimaUbicacion = nuevaUbicacion
+                        mensajeGps = "GPS activo"
+                    }
+
+                    PrecisionWearUtils.ResultadoGps.SUMAR -> {
+                        distancia += metros / 1000f
+                        ultimaUbicacion = nuevaUbicacion
+                        mensajeGps = "GPS activo"
+                    }
                 }
-
-                distancia += metros / 1000f
-                ultimaUbicacion = nuevaUbicacion
-                mensajeGps = "GPS activo"
             }
 
             val tieneFineLocation =
@@ -1448,6 +1546,31 @@ fun enviarComandoEntrenamiento(
     Wearable.getDataClient(context).putDataItem(request)
 }
 
+/**
+ * Variacion maxima creible del pulso, en latidos por segundo.
+ *
+ * El corazon humano tarda segundos en cambiar de ritmo: incluso en un arranque
+ * brusco sube del orden de 5 latidos por segundo. Un salto mayor entre dos
+ * lecturas consecutivas corresponde casi siempre a un artefacto del sensor
+ * optico y no a un cambio real del usuario.
+ */
+private const val MAXIMO_CAMBIO_BPM_POR_SEGUNDO = 8.0
+
+/**
+ * Numero de lecturas sobre el que se calcula la mediana.
+ *
+ * Se mantiene corto a proposito: el descarte por calidad que hace Health
+ * Services ya elimina las lecturas malas en origen, de modo que una ventana
+ * amplia solo agregaria retraso frente al pulso real.
+ */
+private const val VENTANA_MEDIANA_BPM = 3
+
+/**
+ * Rechazos consecutivos tolerados antes de aceptar la lectura.
+ * Evita quedarse anclado a un valor equivocado si el pulso cambio de verdad.
+ */
+private const val MAXIMOS_RECHAZOS_SEGUIDOS = 4
+
 object PrecisionWearUtils {
 
     fun calcularCadencia(
@@ -1497,24 +1620,77 @@ object PrecisionWearUtils {
         return (anterior * 0.75f) + (nuevo * 0.25f)
     }
 
-    fun puntoGpsValido(
+    /**
+     * Resultado de evaluar una lectura del GPS frente a la ultima confiable.
+     *
+     * La distincion entre [DESCARTAR] y [REANCLAR] es la que evita perder
+     * distancia: al descartar se conserva el punto de referencia anterior, de
+     * modo que el siguiente punto valido mide el tramo completo en lugar de
+     * solo su ultima parte.
+     */
+    enum class ResultadoGps {
+        /** Lectura confiable: su distancia se suma al recorrido. */
+        SUMAR,
+
+        /** Lectura poco confiable o movimiento aun insuficiente: se conserva la referencia. */
+        DESCARTAR,
+
+        /** Pasó demasiado tiempo: se toma como nueva referencia sin sumar distancia. */
+        REANCLAR
+    }
+
+    /**
+     * Piso minimo de desplazamiento, en metros.
+     *
+     * El umbral real es el mayor entre este valor y la precision informada por
+     * el GPS: si el receptor declara un error de 5 m, cualquier movimiento
+     * menor a 5 m es indistinguible de su propio ruido y sumarlo infla la
+     * distancia. Con umbral fijo de 1.2 m el error caminando despacio llegaba
+     * a superar el 20%.
+     */
+    private const val MINIMO_METROS = 2.5f
+
+    /** Velocidad maxima creible corriendo, en metros por segundo (27 km/h). */
+    private const val MAXIMA_VELOCIDAD_MPS = 7.5f
+
+    /** Por debajo de esta velocidad se asume que el usuario esta detenido. */
+    private const val MINIMA_VELOCIDAD_MPS = 0.25f
+
+    /** Antigüedad maxima de la referencia antes de volver a anclarla. */
+    private const val MAXIMOS_SEGUNDOS_REFERENCIA = 30f
+
+    fun evaluarPuntoGps(
         accuracy: Float,
         metrosEntrePuntos: Float,
         segundosEntrePuntos: Float,
         pasos: Int
-    ): Boolean {
-        if (pasos <= 0) return false
-        if (accuracy > 18f) return false
-        if (metrosEntrePuntos < 1.2f) return false
-        if (metrosEntrePuntos > 25f) return false
-        if (segundosEntrePuntos <= 0f) return false
+    ): ResultadoGps {
+        // Sin pasos registrados no hay desplazamiento real: lo que mueve al
+        // punto es la deriva del GPS, no el usuario.
+        if (pasos <= 0) return ResultadoGps.DESCARTAR
+
+        if (accuracy > 18f) return ResultadoGps.DESCARTAR
+
+        // Una referencia muy antigua ya no sirve para estimar velocidad; se
+        // reancla sin sumar para no arrastrar un tramo sin respaldo.
+        if (segundosEntrePuntos > MAXIMOS_SEGUNDOS_REFERENCIA) return ResultadoGps.REANCLAR
+
+        if (segundosEntrePuntos <= 0f) return ResultadoGps.DESCARTAR
 
         val velocidadMps = metrosEntrePuntos / segundosEntrePuntos
 
-        if (velocidadMps < 0.35f) return false
-        if (velocidadMps > 7.5f) return false
+        // Salto imposible: error tipico del GPS entre edificios.
+        if (velocidadMps > MAXIMA_VELOCIDAD_MPS) return ResultadoGps.DESCARTAR
 
-        return true
+        // Usuario detenido: se conserva la referencia para no acumular deriva.
+        if (velocidadMps < MINIMA_VELOCIDAD_MPS) return ResultadoGps.DESCARTAR
+
+        // Movimiento aun dentro del margen de error del receptor: se conserva la
+        // referencia y se acumula hasta que el desplazamiento supere ese margen.
+        val minimoExigido = maxOf(MINIMO_METROS, accuracy)
+        if (metrosEntrePuntos < minimoExigido) return ResultadoGps.DESCARTAR
+
+        return ResultadoGps.SUMAR
     }
 }
 

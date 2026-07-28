@@ -7,10 +7,12 @@ import androidx.health.services.client.ExerciseUpdateCallback
 import androidx.health.services.client.HealthServices
 import androidx.health.services.client.data.Availability
 import androidx.health.services.client.data.DataType
+import androidx.health.services.client.data.DataTypeAvailability
 import androidx.health.services.client.data.ExerciseConfig
 import androidx.health.services.client.data.ExerciseLapSummary
 import androidx.health.services.client.data.ExerciseType
 import androidx.health.services.client.data.ExerciseUpdate
+import androidx.health.services.client.data.HeartRateAccuracy
 
 private const val TAG = "HealthServicesManager"
 
@@ -22,6 +24,13 @@ class HealthServicesManager(
 
     private var callbackActual: ExerciseUpdateCallback? = null
     private var ejercicioIniciado: Boolean = false
+
+    /**
+     * Indica si el sensor optico esta entregando mediciones confiables.
+     * Arranca en falso: las primeras lecturas, mientras el sensor se acopla a
+     * la muneca, suelen ser imprecisas y no deben mostrarse como definitivas.
+     */
+    private var sensorDisponible: Boolean = false
 
     fun iniciarEjercicio(
         onBpm: (Int) -> Unit,
@@ -47,16 +56,49 @@ class HealthServicesManager(
             }
 
             override fun onExerciseUpdateReceived(update: ExerciseUpdate) {
+                // El sensor optico entrega lecturas incluso cuando el reloj esta
+                // flojo o recien colocado, y en esos momentos son poco confiables.
+                // Solo se aceptan cuando el propio sistema declara la medicion
+                // como disponible; mientras se estabiliza se avisa al usuario en
+                // lugar de mostrar un valor que puede estar equivocado.
+                if (!sensorDisponible) {
+                    onEstado("Estabilizando sensor cardiaco...")
+                    return
+                }
+
                 val datosBpm = update.latestMetrics.getData(DataType.HEART_RATE_BPM)
 
-                if (datosBpm.isNotEmpty()) {
-                    val bpmActual = datosBpm.last().value.toInt()
+                if (datosBpm.isEmpty()) return
 
-                    if (bpmActual in 35..220) {
-                        Log.d(TAG, "BPM real recibido: $bpmActual")
-                        onBpm(bpmActual)
-                        onEstado("BPM real")
+                // Cada muestra viene acompanada de la calidad con la que el
+                // reloj la midio. Es la misma valoracion que usa el sistema para
+                // decidir si un dato es confiable, y descartarla obligaba a
+                // adivinar despues cuales lecturas eran malas.
+                val confiables = datosBpm.filter { muestra ->
+                    when ((muestra.accuracy as? HeartRateAccuracy)?.sensorStatus) {
+                        HeartRateAccuracy.SensorStatus.ACCURACY_HIGH,
+                        HeartRateAccuracy.SensorStatus.ACCURACY_MEDIUM -> true
+
+                        // Sin informacion de calidad se acepta: no todos los
+                        // relojes la reportan y es preferible a quedarse sin dato.
+                        null -> true
+
+                        else -> false
                     }
+                }
+
+                if (confiables.isEmpty()) {
+                    Log.d(TAG, "Lecturas descartadas por baja precision del sensor")
+                    onEstado("Mejorando lectura cardiaca...")
+                    return
+                }
+
+                val bpmActual = confiables.last().value.toInt()
+
+                if (bpmActual in 35..220) {
+                    Log.d(TAG, "BPM confiable recibido: $bpmActual")
+                    onBpm(bpmActual)
+                    onEstado("BPM real")
                 }
             }
 
@@ -68,29 +110,25 @@ class HealthServicesManager(
                 dataType: DataType<*, *>,
                 availability: Availability
             ) {
-                if (dataType == DataType.HEART_RATE_BPM) {
-                    Log.d(TAG, "Disponibilidad BPM: $availability")
+                if (dataType != DataType.HEART_RATE_BPM) return
 
-                    val estado = availability.toString()
+                Log.d(TAG, "Disponibilidad BPM: $availability")
 
-                    when {
-                        estado.contains("AVAILABLE", ignoreCase = true) -> {
-                            onEstado("Sensor cardiaco disponible")
-                        }
+                // Se compara contra el valor real y no contra su texto: la
+                // cadena "UNAVAILABLE" contiene "AVAILABLE", por lo que una
+                // comparacion por texto daba por disponible un sensor que en
+                // realidad no lo estaba.
+                sensorDisponible = availability == DataTypeAvailability.AVAILABLE
 
-                        estado.contains("ACQUIRING", ignoreCase = true) -> {
-                            onEstado("Calculando BPM...")
-                        }
-
-                        estado.contains("UNAVAILABLE", ignoreCase = true) -> {
-                            onEstado("BPM no disponible")
-                        }
-
-                        else -> {
-                            onEstado("Esperando BPM del reloj")
-                        }
-                    }
+                val mensaje = when (availability) {
+                    DataTypeAvailability.AVAILABLE -> "BPM real"
+                    DataTypeAvailability.ACQUIRING -> "Calculando BPM..."
+                    DataTypeAvailability.UNAVAILABLE -> "Ajusta el reloj a tu muñeca"
+                    DataTypeAvailability.UNAVAILABLE_DEVICE_OFF_BODY -> "El reloj no está puesto"
+                    else -> "Esperando BPM del reloj"
                 }
+
+                onEstado(mensaje)
             }
         }
 
@@ -167,6 +205,8 @@ class HealthServicesManager(
     }
 
     fun finalizarEjercicio() {
+        sensorDisponible = false
+
         if (!ejercicioIniciado) {
             limpiarCallback()
             return
