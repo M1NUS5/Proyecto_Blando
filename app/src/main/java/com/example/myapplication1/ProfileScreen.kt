@@ -59,9 +59,13 @@ fun ProfileScreen(navController: NavController) {
     val settings by AppSettingsStore.settings.collectAsState()
     val uiColors = appUiColors(settings.temaOscuro)
 
-    var displayName by remember { mutableStateOf(session.getDisplayName() ?: session.getName() ?: "Usuario") }
+    // El nombre y la foto se leen del almacen compartido para que el resto de
+    // las pantallas reflejen los cambios en cuanto ocurren.
+    val displayName by PerfilStore.nombre.collectAsState()
+    val fotoGuardada by PerfilStore.fotoUri.collectAsState()
+    val photoUri = fotoGuardada?.let { Uri.parse(it) }
+
     val email = session.getEmail() ?: ""
-    var photoUri by remember { mutableStateOf(session.getPhotoUri()?.let { Uri.parse(it) }) }
 
     var mostrarDialogNombre by remember { mutableStateOf(false) }
     var nombreTemporal by remember { mutableStateOf(displayName) }
@@ -74,8 +78,7 @@ fun ProfileScreen(navController: NavController) {
                 uri,
                 android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
-            photoUri = uri
-            session.savePhotoUri(uri.toString())
+            PerfilStore.actualizarFoto(context, uri.toString())
         }
     }
 
@@ -106,8 +109,7 @@ fun ProfileScreen(navController: NavController) {
                 Button(
                     onClick = {
                         if (nombreTemporal.isNotBlank()) {
-                            displayName = nombreTemporal.trim()
-                            session.saveDisplayName(displayName)
+                            PerfilStore.actualizarNombre(context, nombreTemporal)
                         }
                         mostrarDialogNombre = false
                     },
@@ -232,6 +234,7 @@ fun ProfileScreen(navController: NavController) {
                     textColor = uiColors.dangerButton,
                     onClick = {
                         session.logout()
+                        PerfilStore.limpiar()
                         navController.navigate("login") { popUpTo("home") { inclusive = true } }
                     }
                 )

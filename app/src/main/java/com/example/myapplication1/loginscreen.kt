@@ -156,6 +156,7 @@ fun AuthScreen(
             onSuccess = {
                 val restaurado = session.restoreSessionFromBiometric()
                 if (restaurado) {
+                    PerfilStore.cargar(context)
                     email = session.getEmail() ?: ""
                     Toast.makeText(context, "Huella verificada. Sesión restaurada.", Toast.LENGTH_SHORT).show()
                     onLoginSuccess()
@@ -439,6 +440,9 @@ fun AuthScreen(
                                             when {
                                                 response.isSuccessful && data != null -> {
                                                     session.saveUser(data.user._id, data.user.name, data.user.email, data.token)
+
+                                                    // Carga el nombre y la foto de quien acaba de entrar.
+                                                    PerfilStore.cargar(context)
                                                     Toast.makeText(context, "Bienvenido, ${data.user.name}", Toast.LENGTH_SHORT).show()
                                                     onLoginSuccess()
                                                 }
