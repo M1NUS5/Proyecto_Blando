@@ -169,6 +169,9 @@ fun PantallaReloj() {
 
     var ultimaUbicacion by remember { mutableStateOf<Location?>(null) }
 
+    /** Acumula la distancia priorizando la velocidad que informa el receptor. */
+    val medidorDistancia = remember { MedidorDistancia() }
+
     var estadoIA by remember { mutableStateOf("En espera") }
     var consejoIA by remember { mutableStateOf("Presiona iniciar entrenamiento") }
 
@@ -325,6 +328,7 @@ fun PantallaReloj() {
         pasosGuardados = 0
 
         distancia = 0f
+        medidorDistancia.reiniciar()
 
         aceleracionActual = 0f
         aceleracionPromedio = 0f
@@ -688,70 +692,30 @@ fun PantallaReloj() {
 
                 if (segundos < 12) {
                     mensajeGps = "Estabilizando GPS"
-                    ultimaUbicacion = nuevaUbicacion
                     return@LocationListener
                 }
 
                 if (pasos <= 0) {
                     mensajeGps = "GPS activo, esperando pasos"
-                    ultimaUbicacion = nuevaUbicacion
                     return@LocationListener
                 }
 
-                val accuracy = if (nuevaUbicacion.hasAccuracy()) {
-                    nuevaUbicacion.accuracy
-                } else {
-                    99f
-                }
+                val precision = if (nuevaUbicacion.hasAccuracy()) nuevaUbicacion.accuracy else 99f
 
-                if (accuracy > 18f) {
+                if (precision > 18f) {
                     mensajeGps = "GPS con baja precisión"
                     return@LocationListener
                 }
 
-                val anterior = ultimaUbicacion
+                // El medidor prioriza la velocidad que informa el receptor sobre
+                // la diferencia de posiciones, porque esa velocidad proviene del
+                // efecto Doppler y no arrastra el error acumulado del ruido.
+                val metros = medidorDistancia.procesar(nuevaUbicacion, pasos)
 
-                if (anterior == null) {
-                    ultimaUbicacion = nuevaUbicacion
-                    mensajeGps = "GPS activo"
-                    return@LocationListener
-                }
+                distancia = (medidorDistancia.metrosAcumulados / 1000.0).toFloat()
+                ultimaUbicacion = nuevaUbicacion
 
-                val metros = anterior.distanceTo(nuevaUbicacion)
-                val diferenciaTiempoMs = nuevaUbicacion.time - anterior.time
-
-                val segundosEntrePuntos = if (diferenciaTiempoMs > 0L) {
-                    diferenciaTiempoMs / 1000f
-                } else {
-                    0f
-                }
-
-                when (
-                    PrecisionWearUtils.evaluarPuntoGps(
-                        accuracy = accuracy,
-                        metrosEntrePuntos = metros,
-                        segundosEntrePuntos = segundosEntrePuntos,
-                        pasos = pasos
-                    )
-                ) {
-                    // Se conserva la referencia anterior a proposito: asi el
-                    // siguiente punto confiable mide el tramo completo y no se
-                    // pierde el avance recorrido mientras se filtraba ruido.
-                    PrecisionWearUtils.ResultadoGps.DESCARTAR -> {
-                        mensajeGps = "GPS filtrando ruido"
-                    }
-
-                    PrecisionWearUtils.ResultadoGps.REANCLAR -> {
-                        ultimaUbicacion = nuevaUbicacion
-                        mensajeGps = "GPS activo"
-                    }
-
-                    PrecisionWearUtils.ResultadoGps.SUMAR -> {
-                        distancia += metros / 1000f
-                        ultimaUbicacion = nuevaUbicacion
-                        mensajeGps = "GPS activo"
-                    }
-                }
+                mensajeGps = if (metros > 0.0) "GPS activo" else "GPS filtrando ruido"
             }
 
             val tieneFineLocation =
@@ -1620,78 +1584,6 @@ object PrecisionWearUtils {
         return (anterior * 0.75f) + (nuevo * 0.25f)
     }
 
-    /**
-     * Resultado de evaluar una lectura del GPS frente a la ultima confiable.
-     *
-     * La distincion entre [DESCARTAR] y [REANCLAR] es la que evita perder
-     * distancia: al descartar se conserva el punto de referencia anterior, de
-     * modo que el siguiente punto valido mide el tramo completo en lugar de
-     * solo su ultima parte.
-     */
-    enum class ResultadoGps {
-        /** Lectura confiable: su distancia se suma al recorrido. */
-        SUMAR,
-
-        /** Lectura poco confiable o movimiento aun insuficiente: se conserva la referencia. */
-        DESCARTAR,
-
-        /** Pasó demasiado tiempo: se toma como nueva referencia sin sumar distancia. */
-        REANCLAR
-    }
-
-    /**
-     * Piso minimo de desplazamiento, en metros.
-     *
-     * El umbral real es el mayor entre este valor y la precision informada por
-     * el GPS: si el receptor declara un error de 5 m, cualquier movimiento
-     * menor a 5 m es indistinguible de su propio ruido y sumarlo infla la
-     * distancia. Con umbral fijo de 1.2 m el error caminando despacio llegaba
-     * a superar el 20%.
-     */
-    private const val MINIMO_METROS = 2.5f
-
-    /** Velocidad maxima creible corriendo, en metros por segundo (27 km/h). */
-    private const val MAXIMA_VELOCIDAD_MPS = 7.5f
-
-    /** Por debajo de esta velocidad se asume que el usuario esta detenido. */
-    private const val MINIMA_VELOCIDAD_MPS = 0.25f
-
-    /** Antigüedad maxima de la referencia antes de volver a anclarla. */
-    private const val MAXIMOS_SEGUNDOS_REFERENCIA = 30f
-
-    fun evaluarPuntoGps(
-        accuracy: Float,
-        metrosEntrePuntos: Float,
-        segundosEntrePuntos: Float,
-        pasos: Int
-    ): ResultadoGps {
-        // Sin pasos registrados no hay desplazamiento real: lo que mueve al
-        // punto es la deriva del GPS, no el usuario.
-        if (pasos <= 0) return ResultadoGps.DESCARTAR
-
-        if (accuracy > 18f) return ResultadoGps.DESCARTAR
-
-        // Una referencia muy antigua ya no sirve para estimar velocidad; se
-        // reancla sin sumar para no arrastrar un tramo sin respaldo.
-        if (segundosEntrePuntos > MAXIMOS_SEGUNDOS_REFERENCIA) return ResultadoGps.REANCLAR
-
-        if (segundosEntrePuntos <= 0f) return ResultadoGps.DESCARTAR
-
-        val velocidadMps = metrosEntrePuntos / segundosEntrePuntos
-
-        // Salto imposible: error tipico del GPS entre edificios.
-        if (velocidadMps > MAXIMA_VELOCIDAD_MPS) return ResultadoGps.DESCARTAR
-
-        // Usuario detenido: se conserva la referencia para no acumular deriva.
-        if (velocidadMps < MINIMA_VELOCIDAD_MPS) return ResultadoGps.DESCARTAR
-
-        // Movimiento aun dentro del margen de error del receptor: se conserva la
-        // referencia y se acumula hasta que el desplazamiento supere ese margen.
-        val minimoExigido = maxOf(MINIMO_METROS, accuracy)
-        if (metrosEntrePuntos < minimoExigido) return ResultadoGps.DESCARTAR
-
-        return ResultadoGps.SUMAR
-    }
 }
 
 @Composable
