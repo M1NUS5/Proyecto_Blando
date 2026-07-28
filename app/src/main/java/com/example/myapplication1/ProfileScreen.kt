@@ -14,7 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.AlertDialog
@@ -43,6 +42,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
 
@@ -188,10 +193,13 @@ fun ProfileScreen(navController: NavController) {
                             color = Color.White
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "✏️",
-                            fontSize = 14.sp,
-                            modifier = Modifier.clickable { nombreTemporal = displayName; mostrarDialogNombre = true }
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Editar nombre",
+                            tint = Color.White,
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clickable { nombreTemporal = displayName; mostrarDialogNombre = true }
                         )
                     }
 
@@ -207,19 +215,19 @@ fun ProfileScreen(navController: NavController) {
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                ProfileOption(text = "Editar nombre", icon = "✏️", uiColors = uiColors, onClick = {
+                ProfileOption(text = "Editar nombre", icono = Icons.Default.Edit, uiColors = uiColors, onClick = {
                     nombreTemporal = displayName
                     mostrarDialogNombre = true
                 })
-                ProfileOption(text = "Cambiar foto", icon = "📷", uiColors = uiColors, onClick = {
+                ProfileOption(text = "Cambiar foto", icono = Icons.Default.PhotoCamera, uiColors = uiColors, onClick = {
                     galeria.launch("image/*")
                 })
-                ProfileOption(text = "Configuración", icon = "⚙️", uiColors = uiColors, onClick = {
+                ProfileOption(text = "Configuración", icono = Icons.Default.Settings, uiColors = uiColors, onClick = {
                     navController.navigate("settings")
                 })
                 ProfileOption(
                     text = "Cerrar sesión",
-                    icon = "🚪",
+                    icono = Icons.AutoMirrored.Filled.Logout,
                     uiColors = uiColors,
                     textColor = uiColors.dangerButton,
                     onClick = {
@@ -235,10 +243,10 @@ fun ProfileScreen(navController: NavController) {
             containerColor = uiColors.bottomBar,
             contentColor = uiColors.bottomUnselected
         ) {
-            NavigationBarItem(selected = false, onClick = { navController.navigate("home") }, icon = { Icon(Icons.Default.Home, contentDescription = null) }, label = { Text("Home") }, colors = bottomItemColors(uiColors))
-            NavigationBarItem(selected = false, onClick = { navController.navigate("IA") }, icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) }, label = { Text("IA") }, colors = bottomItemColors(uiColors))
-            NavigationBarItem(selected = false, onClick = { navController.navigate("camera") }, icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) }, label = { Text("Comida") }, colors = bottomItemColors(uiColors))
-            NavigationBarItem(selected = false, onClick = { navController.navigate("agenda") }, icon = { Icon(Icons.Default.DateRange, contentDescription = null) }, label = { Text("Agenda") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.irASeccion("home") }, icon = { Icon(Icons.Default.Home, contentDescription = null) }, label = { Text("Home") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.irASeccion("IA") }, icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) }, label = { Text("IA") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.irASeccion("camera") }, icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) }, label = { Text("Comida") }, colors = bottomItemColors(uiColors))
+            NavigationBarItem(selected = false, onClick = { navController.irASeccion("agenda") }, icon = { Icon(Icons.Default.DateRange, contentDescription = null) }, label = { Text("Agenda") }, colors = bottomItemColors(uiColors))
         }
     }
 }
@@ -246,7 +254,7 @@ fun ProfileScreen(navController: NavController) {
 @Composable
 fun ProfileOption(
     text: String,
-    icon: String,
+    icono: ImageVector,
     uiColors: AppUiColors,
     textColor: Color = uiColors.textPrimary,
     onClick: () -> Unit
@@ -260,9 +268,20 @@ fun ProfileOption(
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = icon, fontSize = 20.sp)
+        Icon(
+            imageVector = icono,
+            // La etiqueta de texto que sigue ya nombra la accion.
+            contentDescription = null,
+            tint = uiColors.primaryButton,
+            modifier = Modifier.size(22.dp)
+        )
         Spacer(modifier = Modifier.width(12.dp))
         Text(text = text, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = textColor, modifier = Modifier.weight(1f))
-        Text(text = "›", fontSize = 20.sp, color = uiColors.textMuted)
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = uiColors.textMuted,
+            modifier = Modifier.size(20.dp)
+        )
     }
 }

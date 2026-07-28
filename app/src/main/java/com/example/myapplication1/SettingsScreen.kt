@@ -25,6 +25,18 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.DirectionsRun
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Watch
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -83,19 +95,19 @@ fun SettingsScreen(
         ) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { navController.popBackStack() }) {
-                    Text("←", fontSize = 24.sp, color = uiColors.textPrimary)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar", tint = uiColors.textPrimary)
                 }
                 Text("Configuración", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = uiColors.textPrimary)
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            SettingsCard("👤", "Información de la cuenta", uiColors) {
+            SettingsCard(Icons.Default.AccountCircle, "Información de la cuenta", uiColors) {
                 SettingText("ID de usuario", userId, uiColors)
                 SettingText("Estado de sesión", if (userId != "No disponible") "Sesión activa" else "Sin sesión activa", uiColors)
             }
 
-            SettingsCard("🏃", "Preferencias de entrenamiento", uiColors) {
+            SettingsCard(Icons.Default.DirectionsRun, "Preferencias de entrenamiento", uiColors) {
                 UnidadPrincipalSelector(settings.unidadPrincipal, uiColors) { nuevaUnidad ->
                     actualizarConfiguracion(settings.copy(unidadPrincipal = nuevaUnidad))
                 }
@@ -104,7 +116,7 @@ fun SettingsScreen(
                 SettingText("Sincronización", if (datosReloj.timestamp > 0L) "Reloj sincronizado" else "Esperando reloj", uiColors)
             }
 
-            SettingsCard("🤖", "Configuración de IA", uiColors) {
+            SettingsCard(Icons.Default.AutoAwesome, "Configuración de IA", uiColors) {
                 SettingSwitch(
                     title = "Predicción automática",
                     description = if (settings.prediccionIAActiva) "La IA analizará entrenamientos finalizados." else "La IA está apagada en teléfono y reloj.",
@@ -130,14 +142,14 @@ fun SettingsScreen(
                 )
             }
 
-            SettingsCard("🎨", "Apariencia", uiColors) {
+            SettingsCard(Icons.Default.Palette, "Apariencia", uiColors) {
                 TemaSelector(settings.temaOscuro, uiColors) { oscuro ->
                     actualizarConfiguracion(settings.copy(temaOscuro = oscuro))
                     onThemeChange(oscuro)
                 }
             }
 
-            SettingsCard("⌚", "Sensores y datos en tiempo real", uiColors) {
+            SettingsCard(Icons.Default.Watch, "Sensores y datos en tiempo real", uiColors) {
                 SensorStatusRow("GPS / Ubicación", if (datosReloj.estadoEntrenamiento == "CORRIENDO") "Activo durante entrenamiento" else "Disponible", true, uiColors)
                 SensorStatusRow("Tiempo de corrida", "${datosReloj.tiempoSegundos}s", datosReloj.tiempoSegundos > 0, uiColors)
                 SensorStatusRow("Ritmo / Pace", if (datosReloj.pace > 0f) "%.2f min/km".format(datosReloj.pace) else "Sin datos", datosReloj.pace > 0f, uiColors)
@@ -147,7 +159,7 @@ fun SettingsScreen(
                 SensorStatusRow("Estado IA recibido", datosReloj.estadoIA, datosReloj.timestamp > 0L, uiColors)
             }
 
-            SettingsCard("🔔", "Notificaciones y alertas", uiColors) {
+            SettingsCard(Icons.Default.Notifications, "Notificaciones y alertas", uiColors) {
                 SettingSwitch(
                     title = "Alertas de ritmo",
                     description = "Avisos cuando el ritmo sea alto o bajo.",
@@ -157,7 +169,7 @@ fun SettingsScreen(
                 )
             }
 
-            SettingsCard("ℹ️", "Acerca de la app", uiColors) {
+            SettingsCard(Icons.Default.Info, "Acerca de la app", uiColors) {
                 SettingText("Nombre", "ALYRA - Entrenador Inteligente de Ritmo", uiColors)
                 SettingText("Versión", "1.0", uiColors)
                 SettingText("Propósito", "Monitorear entrenamientos y analizarlos con IA.", uiColors)
@@ -180,7 +192,7 @@ fun SettingsScreen(
 
 @Composable
 fun SettingsCard(
-    emoji: String,
+    icono: ImageVector,
     title: String,
     uiColors: AppUiColors,
     content: @Composable ColumnScope.() -> Unit
@@ -194,8 +206,15 @@ fun SettingsCard(
             .padding(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = emoji, fontSize = 18.sp)
-            Spacer(modifier = Modifier.padding(horizontal = 4.dp))
+            Icon(
+                imageVector = icono,
+                // El titulo que sigue ya describe la seccion, por lo que el icono
+                // es decorativo y no debe repetirse en el lector de pantalla.
+                contentDescription = null,
+                tint = uiColors.primaryButton,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
             Text(text = title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = uiColors.textPrimary)
         }
         Spacer(modifier = Modifier.height(12.dp))
