@@ -18,15 +18,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -44,9 +50,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import okhttp3.ResponseBody
+import org.json.JSONObject
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -57,10 +68,35 @@ private val TealLight      = Color(0xFF80CBC4)
 private val TealPale       = Color(0xFFB2DFDB)
 private val TealSurface    = Color(0xFFE0F2F1)
 
+/** Longitud minima exigida al crear una cuenta nueva. */
+private const val LARGO_MINIMO_PASSWORD = 6
+
+private fun correoValido(correo: String): Boolean =
+    android.util.Patterns.EMAIL_ADDRESS.matcher(correo.trim()).matches()
+
+/**
+ * Extrae el mensaje que envia el backend en `{ "error": "..." }`.
+ *
+ * Sin esto la aplicacion mostraba siempre un texto generico y se perdia la
+ * causa real del fallo (por ejemplo "Usuario ya existe" o "Contraseña
+ * incorrecta"), que es justo lo que el usuario necesita saber para corregir.
+ */
+private fun mensajeDelServidor(cuerpo: ResponseBody?, porDefecto: String): String {
+    val crudo = runCatching { cuerpo?.string() }.getOrNull().orEmpty()
+    if (crudo.isBlank()) return porDefecto
+
+    return runCatching {
+        JSONObject(crudo).optString("error").ifBlank { porDefecto }
+    }.getOrDefault(porDefecto)
+}
+
 @Composable
 fun AuthScreen(
     isLogin: Boolean,
-    onSwitch: () -> Unit,
+    /** Correo con el que llega la pantalla, por ejemplo tras crear una cuenta. */
+    correoInicial: String = "",
+    /** Cambia entre iniciar sesion y registrarse, arrastrando el correo si aplica. */
+    onSwitch: (String?) -> Unit,
     onLoginSuccess: () -> Unit
 ) {
     val context = LocalContext.current
@@ -70,13 +106,43 @@ fun AuthScreen(
 
     LaunchedEffect(Unit) { AppSettingsStore.cargar(context) }
 
+    /** Verdadero cuando la pantalla se abrio justo despues de crear una cuenta. */
+    val vieneDeRegistro = correoInicial.isNotBlank()
+
     var name by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf(session.getBiometricEmail() ?: "") }
+
+    // Prioridad del correo mostrado:
+    //   1. El de la cuenta recien creada.
+    //   2. El de la ultima sesion guardada, como comodidad al iniciar sesion.
+    //   3. Vacio, al crear una cuenta nueva.
+    var email by remember {
+        mutableStateOf(
+            when {
+                vieneDeRegistro -> correoInicial
+                isLogin -> session.getBiometricEmail().orEmpty()
+                else -> ""
+            }
+        )
+    }
+
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
 
+    var mostrarPassword by remember { mutableStateOf(false) }
+    var errorServidor by remember { mutableStateOf<String?>(null) }
+
+    // Validaciones en vivo: solo se senala el campo cuando el usuario ya escribio
+    // algo, para no mostrarle errores en un formulario que apenas va empezando.
+    val errorCorreo = email.isNotBlank() && !correoValido(email)
+    val errorPassword = !isLogin && password.isNotBlank() && password.length < LARGO_MINIMO_PASSWORD
+    val errorConfirmacion = !isLogin && confirmPassword.isNotBlank() && confirmPassword != password
+
+    // La huella restaura la sesion guardada en el dispositivo. Si el usuario acaba
+    // de crear una cuenta distinta, ofrecerla lo haria entrar con la cuenta
+    // anterior, por eso en ese caso se oculta.
     val huellaDisponible = isLogin &&
+            !vieneDeRegistro &&
             session.canUseBiometricLogin() &&
             BiometricAuthHelper.isBiometricAvailable(context)
 
@@ -160,7 +226,7 @@ fun AuthScreen(
                     .padding(4.dp)
             ) {
                 Button(
-                    onClick = { if (!isLogin) onSwitch() },
+                    onClick = { if (!isLogin) onSwitch(null) },
                     shape = RoundedCornerShape(50),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isLogin) Color.White else Color.Transparent,
@@ -169,7 +235,7 @@ fun AuthScreen(
                 ) { Text("Iniciar Sesión", fontWeight = FontWeight.Bold) }
 
                 Button(
-                    onClick = { if (isLogin) onSwitch() },
+                    onClick = { if (isLogin) onSwitch(null) },
                     shape = RoundedCornerShape(50),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (!isLogin) Color.White else Color.Transparent,
@@ -226,9 +292,18 @@ fun AuthScreen(
 
                     OutlinedTextField(
                         value = email,
-                        onValueChange = { email = it },
+                        onValueChange = { email = it; errorServidor = null },
                         placeholder = { Text("Email") },
-                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = TealPrimary) },
+                        leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = TealPrimary) },
+                        singleLine = true,
+                        isError = errorCorreo,
+                        supportingText = if (errorCorreo) {
+                            { Text("Escribe un correo válido, por ejemplo nombre@correo.com") }
+                        } else null,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email,
+                            imeAction = ImeAction.Next
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -243,10 +318,40 @@ fun AuthScreen(
 
                     OutlinedTextField(
                         value = password,
-                        onValueChange = { password = it },
+                        onValueChange = { password = it; errorServidor = null },
                         placeholder = { Text("Contraseña") },
                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = TealPrimary) },
-                        visualTransformation = PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { mostrarPassword = !mostrarPassword }) {
+                                Icon(
+                                    imageVector = if (mostrarPassword) {
+                                        Icons.Default.VisibilityOff
+                                    } else {
+                                        Icons.Default.Visibility
+                                    },
+                                    contentDescription = if (mostrarPassword) {
+                                        "Ocultar contraseña"
+                                    } else {
+                                        "Mostrar contraseña"
+                                    },
+                                    tint = TealPrimary
+                                )
+                            }
+                        },
+                        visualTransformation = if (mostrarPassword) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        singleLine = true,
+                        isError = errorPassword,
+                        supportingText = if (errorPassword) {
+                            { Text("La contraseña debe tener al menos $LARGO_MINIMO_PASSWORD caracteres") }
+                        } else null,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = if (isLogin) ImeAction.Done else ImeAction.Next
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -262,10 +367,23 @@ fun AuthScreen(
                     if (!isLogin) {
                         OutlinedTextField(
                             value = confirmPassword,
-                            onValueChange = { confirmPassword = it },
+                            onValueChange = { confirmPassword = it; errorServidor = null },
                             placeholder = { Text("Confirmar contraseña") },
                             leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = TealPrimary) },
-                            visualTransformation = PasswordVisualTransformation(),
+                            visualTransformation = if (mostrarPassword) {
+                                VisualTransformation.None
+                            } else {
+                                PasswordVisualTransformation()
+                            },
+                            singleLine = true,
+                            isError = errorConfirmacion,
+                            supportingText = if (errorConfirmacion) {
+                                { Text("Las contraseñas no coinciden") }
+                            } else null,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Password,
+                                imeAction = ImeAction.Done
+                            ),
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(14.dp),
                             colors = OutlinedTextFieldDefaults.colors(
@@ -279,54 +397,117 @@ fun AuthScreen(
                         )
                     }
 
+                    // Los errores del servidor se muestran fijos en pantalla y no
+                    // como aviso pasajero, para que el usuario pueda leerlos con calma.
+                    errorServidor?.let { mensaje ->
+                        Text(
+                            text = mensaje,
+                            color = uiColors.dangerButton,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    // El boton solo se habilita cuando el formulario esta completo y
+                    // sin errores. Asi se evita enviar peticiones invalidas y, sobre
+                    // todo, que un doble toque dispare dos registros o dos inicios
+                    // de sesion mientras el servidor responde.
+                    val formularioListo = if (isLogin) {
+                        email.isNotBlank() && password.isNotBlank() && !errorCorreo
+                    } else {
+                        name.isNotBlank() &&
+                            email.isNotBlank() && !errorCorreo &&
+                            password.length >= LARGO_MINIMO_PASSWORD &&
+                            confirmPassword == password
+                    }
+
                     Button(
                         onClick = {
                             if (loading) return@Button
-                            if (isLogin && huellaDisponible && password.isBlank()) { iniciarConHuella(); return@Button }
-                            if (isLogin && huellaDisponible && email.isBlank()) { iniciarConHuella(); return@Button }
-                            if (email.isBlank() || password.isBlank()) {
-                                Toast.makeText(context, if (huellaDisponible) "Presiona Iniciar sesión para usar huella o escribe tu contraseña." else "Completa todos los campos", Toast.LENGTH_SHORT).show()
-                                return@Button
-                            }
-                            if (!isLogin && name.isBlank()) { Toast.makeText(context, "Ingresa tu nombre", Toast.LENGTH_SHORT).show(); return@Button }
-                            if (!isLogin && password != confirmPassword) { Toast.makeText(context, "Las contraseñas no coinciden", Toast.LENGTH_SHORT).show(); return@Button }
+                            errorServidor = null
+
                             loading = true
+
                             if (isLogin) {
                                 RetrofitClient.instance.login(LoginRequest(email.trim(), password))
                                     .enqueue(object : Callback<LoginResponse> {
                                         override fun onResponse(call: Call<LoginResponse>, response: Response<LoginResponse>) {
                                             loading = false
-                                            if (response.isSuccessful) {
-                                                val data = response.body()
-                                                if (data != null) {
+                                            val data = response.body()
+
+                                            when {
+                                                response.isSuccessful && data != null -> {
                                                     session.saveUser(data.user._id, data.user.name, data.user.email, data.token)
-                                                    Toast.makeText(context, "Login exitoso. Huella activada.", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, "Bienvenido, ${data.user.name}", Toast.LENGTH_SHORT).show()
                                                     onLoginSuccess()
-                                                } else { Toast.makeText(context, "Error en datos del servidor", Toast.LENGTH_SHORT).show() }
-                                            } else { Toast.makeText(context, "Credenciales incorrectas", Toast.LENGTH_SHORT).show() }
+                                                }
+                                                response.isSuccessful -> {
+                                                    errorServidor = "El servidor respondió sin datos de usuario."
+                                                }
+                                                else -> {
+                                                    errorServidor = mensajeDelServidor(
+                                                        response.errorBody(),
+                                                        "No se pudo iniciar sesión. Revisa tu correo y contraseña."
+                                                    )
+                                                }
+                                            }
                                         }
-                                        override fun onFailure(call: Call<LoginResponse>, t: Throwable) { loading = false; Toast.makeText(context, "Error conexión: ${t.message}", Toast.LENGTH_SHORT).show() }
+
+                                        override fun onFailure(call: Call<LoginResponse>, t: Throwable) {
+                                            loading = false
+                                            errorServidor = "Sin conexión con el servidor. Verifica tu internet e intenta de nuevo."
+                                        }
                                     })
                             } else {
                                 RetrofitClient.instance.register(RegisterRequest(name.trim(), email.trim(), password))
                                     .enqueue(object : Callback<Map<String, String>> {
                                         override fun onResponse(call: Call<Map<String, String>>, response: Response<Map<String, String>>) {
                                             loading = false
-                                            if (response.isSuccessful) { Toast.makeText(context, "Usuario registrado. Ahora inicia sesión.", Toast.LENGTH_SHORT).show(); onSwitch() }
-                                            else { Toast.makeText(context, "Error al registrar", Toast.LENGTH_SHORT).show() }
+
+                                            if (response.isSuccessful) {
+                                                Toast.makeText(context, "Cuenta creada. Ahora inicia sesión.", Toast.LENGTH_SHORT).show()
+                                                // Se arrastra el correo recien registrado para que el
+                                                // usuario no tenga que volver a escribirlo.
+                                                onSwitch(email.trim())
+                                            } else {
+                                                errorServidor = mensajeDelServidor(
+                                                    response.errorBody(),
+                                                    "No se pudo crear la cuenta."
+                                                )
+                                            }
                                         }
-                                        override fun onFailure(call: Call<Map<String, String>>, t: Throwable) { loading = false; Toast.makeText(context, "Error conexión: ${t.message}", Toast.LENGTH_SHORT).show() }
+
+                                        override fun onFailure(call: Call<Map<String, String>>, t: Throwable) {
+                                            loading = false
+                                            errorServidor = "Sin conexión con el servidor. Verifica tu internet e intenta de nuevo."
+                                        }
                                     })
                             }
                         },
+                        enabled = formularioListo && !loading,
                         shape = RoundedCornerShape(50),
                         modifier = Modifier.fillMaxWidth().height(50.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = TealPrimary, contentColor = Color.White)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = TealPrimary,
+                            contentColor = Color.White,
+                            disabledContainerColor = TealLight,
+                            disabledContentColor = Color.White.copy(alpha = 0.7f)
+                        )
                     ) {
+                        if (loading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                        }
+
                         Text(
                             text = when {
-                                loading -> "Cargando..."
-                                isLogin && huellaDisponible && password.isBlank() -> "Iniciar sesión con huella"
+                                loading && isLogin -> "Iniciando sesión..."
+                                loading -> "Creando cuenta..."
                                 isLogin -> "Iniciar sesión"
                                 else -> "Crear cuenta"
                             },
@@ -357,7 +538,7 @@ fun AuthScreen(
                     text = if (isLogin) "Regístrate" else "Iniciar sesión",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clickable { onSwitch() }
+                    modifier = Modifier.clickable { onSwitch(null) }
                 )
             }
         }
