@@ -21,6 +21,18 @@ data class PaceResult(
     val probabilities: FloatArray
 )
 
+/**
+ * Texto que se muestra al usuario segun la clase predicha por el modelo.
+ * Se define una sola vez para que la pantalla de IA y el guardado del
+ * entrenamiento entreguen siempre la misma recomendacion.
+ */
+fun recomendacionParaClase(clase: Int?): String = when (clase) {
+    0 -> "Puedes aumentar un poco el ritmo."
+    1 -> "Mantén el ritmo actual."
+    2 -> "Debes bajar el ritmo."
+    else -> "Recomendación no disponible."
+}
+
 class PaceClassifier(context: Context) {
 
     private val interpreter: Interpreter

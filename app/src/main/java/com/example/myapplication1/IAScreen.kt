@@ -60,7 +60,7 @@ import java.util.Locale
 @Composable
 fun IAScreen(navController: NavController) {
     val context = LocalContext.current
-    val classifier = remember { PaceClassifier(context) }
+    val classifier = remember { PaceClassifierProvider.obtener(context) }
 
     val settings by AppSettingsStore.settings.collectAsState()
     val uiColors = appUiColors(settings.temaOscuro)
@@ -142,12 +142,7 @@ fun IAScreen(navController: NavController) {
 
         resultadoTipo = prediccion.predictedClass
 
-        recomendacion = when (prediccion.predictedClass) {
-            0 -> "Puedes aumentar un poco el ritmo."
-            1 -> "Mantén el ritmo actual."
-            2 -> "Debes bajar el ritmo."
-            else -> "Recomendación no disponible."
-        }
+        recomendacion = recomendacionParaClase(prediccion.predictedClass)
 
         mensaje = "Predicción realizada con los datos reales del entrenamiento finalizado"
     }
@@ -287,6 +282,11 @@ fun IAScreen(navController: NavController) {
                 .padding(bottom = 90.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            EntrenamientoActivoBanner(
+                navController = navController,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
             Text(
                 text = "Predicción con IA",
                 fontSize = 26.sp,
@@ -496,7 +496,7 @@ fun IAScreen(navController: NavController) {
         ) {
             NavigationBarItem(
                 selected = false,
-                onClick = { navController.navigate("home") },
+                onClick = { navController.irASeccion("home") },
                 icon = { Icon(Icons.Default.Home, contentDescription = null) },
                 label = { Text("Home") },
                 colors = iaBottomItemColors(uiColors)
@@ -512,7 +512,7 @@ fun IAScreen(navController: NavController) {
 
             NavigationBarItem(
                 selected = false,
-                onClick = { navController.navigate("camera") },
+                onClick = { navController.irASeccion("camera") },
                 icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
                 label = { Text("Comida") },
                 colors = iaBottomItemColors(uiColors)
@@ -520,7 +520,7 @@ fun IAScreen(navController: NavController) {
 
             NavigationBarItem(
                 selected = false,
-                onClick = { navController.navigate("agenda") },
+                onClick = { navController.irASeccion("agenda") },
                 icon = { Icon(Icons.Default.DateRange, contentDescription = null) },
                 label = { Text("Agenda") },
                 colors = iaBottomItemColors(uiColors)
