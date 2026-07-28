@@ -15,6 +15,11 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
 
         AppSettingsStore.cargar(applicationContext)
+        PerfilStore.cargar(applicationContext)
+
+        // Se adelanta el arranque del servidor mientras el usuario navega, para
+        // que la primera accion que dependa de la red no cargue con la espera.
+        DespertadorServidor.despertar()
 
         setContent {
             val context = LocalContext.current

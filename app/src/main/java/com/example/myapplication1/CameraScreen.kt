@@ -39,6 +39,12 @@ import retrofit2.Response
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 
+/**
+ * Intentos totales del analisis de comida (el original mas un reintento).
+ * Basta con uno: el primer intento fallido ya deja el servidor encendido.
+ */
+private const val MAXIMOS_INTENTOS_ANALISIS = 2
+
 private val TealPrimary = Color(0xFF26A69A)
 private val TealMedium  = Color(0xFF4DB6AC)
 
@@ -92,6 +98,7 @@ fun CameraScreen(navController: NavController) {
     var resultado by remember { mutableStateOf<FoodAnalysisResponse?>(null) }
     var preparandoImagen by remember { mutableStateOf(false) }
     var cargando by remember { mutableStateOf(false) }
+    var reintentando by remember { mutableStateOf(false) }
     var guardando by remember { mutableStateOf(false) }
     var guardadoOk by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -305,13 +312,23 @@ fun CameraScreen(navController: NavController) {
         camaraLauncher.launch(uri)
     }
 
-    fun analizarImagen() {
+    /**
+     * Envia la fotografia al backend para su analisis.
+     *
+     * Se reintenta una vez de forma automatica ante fallos de red o de tiempo de
+     * espera. La causa habitual de ese primer fallo es que el servidor estaba
+     * suspendido por inactividad: ese intento inicial lo despierta, y el segundo
+     * ya encuentra el servicio disponible. Reintentar evita que el usuario vea
+     * un error por algo que se resuelve solo en unos segundos.
+     */
+    fun analizarImagen(intento: Int = 1) {
         val base64 = imageBase64 ?: return
 
         cargando = true
         error = null
         resultado = null
         guardadoOk = false
+        reintentando = intento > 1
 
         RetrofitClient.instance
             .analyzeFood(FoodAnalysisRequest(imageBase64 = base64, mimeType = imageMediaType))
@@ -320,9 +337,17 @@ fun CameraScreen(navController: NavController) {
                     call: Call<FoodAnalysisResponse>,
                     response: Response<FoodAnalysisResponse>
                 ) {
-                    cargando = false
-
                     val cuerpo = response.body()
+
+                    // Los errores 5xx suelen indicar que el servidor apenas esta
+                    // arrancando, por eso tambien se reintentan.
+                    if (response.code() >= 500 && intento < MAXIMOS_INTENTOS_ANALISIS) {
+                        analizarImagen(intento + 1)
+                        return
+                    }
+
+                    cargando = false
+                    reintentando = false
 
                     when {
                         !response.isSuccessful || cuerpo == null ->
@@ -338,11 +363,18 @@ fun CameraScreen(navController: NavController) {
                 }
 
                 override fun onFailure(call: Call<FoodAnalysisResponse>, t: Throwable) {
+                    if (intento < MAXIMOS_INTENTOS_ANALISIS) {
+                        analizarImagen(intento + 1)
+                        return
+                    }
+
                     cargando = false
+                    reintentando = false
+
                     error = if (t is java.net.SocketTimeoutException) {
-                        "El servidor tardó demasiado en responder. Intenta de nuevo."
+                        "El servidor tardó demasiado en responder. Vuelve a intentarlo."
                     } else {
-                        "Error al analizar: ${t.message}"
+                        "No se pudo conectar con el servidor. Revisa tu internet e intenta de nuevo."
                     }
                 }
             })
