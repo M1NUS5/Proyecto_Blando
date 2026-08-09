@@ -76,9 +76,38 @@ data class ActivityItem(
 // Analisis nutricional de comidas
 // ---------------------------------------------------------------------------
 
+/**
+ * Contexto del usuario que acompana a la fotografia para que la IA pueda
+ * redactar un consejo personalizado.
+ *
+ * Las metas y lo consumido se calculan en la aplicacion y se envian ya
+ * resueltos: al modelo se le pide interpretar cifras, no calcularlas, porque
+ * las operaciones aritmeticas son justo donde un modelo de lenguaje falla.
+ */
+data class PerfilNutricional(
+    val edad: Int = 0,
+    val sexo: String = "",
+    val estaturaCm: Int = 0,
+    val pesoKg: Double = 0.0,
+    val nivelActividad: String = "",
+    val objetivo: String = "",
+
+    val caloriasMeta: Int = 0,
+    val proteinaMeta: Int = 0,
+    val carbosMeta: Int = 0,
+    val grasasMeta: Int = 0,
+
+    val caloriasConsumidas: Int = 0,
+    val proteinaConsumida: Int = 0,
+    val carbosConsumidos: Int = 0,
+    val grasasConsumidas: Int = 0
+)
+
 data class FoodAnalysisRequest(
     val imageBase64: String,
-    val mimeType: String
+    val mimeType: String,
+    /** Ausente mientras el usuario no haya llenado sus datos corporales. */
+    val perfil: PerfilNutricional? = null
 )
 
 data class FoodAnalysisResponse(
@@ -92,7 +121,11 @@ data class FoodAnalysisResponse(
     val carbs: Int = 0,
     val fats: Int = 0,
     val confidence: String = "",
-    val observation: String = ""
+    val observation: String = "",
+    /** Consejo redactado por la IA. Vacio si no se envio el perfil. */
+    val recomendacion: String = "",
+    /** Porcion que la IA sugiere para este usuario, si difiere de la analizada. */
+    val porcionSugerida: String = ""
 )
 
 data class MealRequest(

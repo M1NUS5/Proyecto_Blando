@@ -29,6 +29,16 @@ object PerfilStore {
     /** Nombre que el usuario decidio mostrar. */
     val nombre: StateFlow<String> = _nombre
 
+    private val _fisico = MutableStateFlow(PerfilFisico())
+
+    /**
+     * Estatura, peso, edad y objetivo del usuario. Se publica como flujo por el
+     * mismo motivo que el nombre: la pantalla de comida calcula recomendaciones
+     * con estos datos y debe reflejar los cambios en cuanto se guardan, sin
+     * esperar a que la pantalla se vuelva a crear.
+     */
+    val fisico: StateFlow<PerfilFisico> = _fisico
+
     /** Lee los valores guardados. Conviene llamarlo al arrancar la aplicacion. */
     fun cargar(context: Context) {
         val sesion = SessionManager(context)
@@ -37,6 +47,12 @@ object PerfilStore {
         _nombre.value = sesion.getDisplayName()
             ?: sesion.getName()
             ?: "Usuario"
+        _fisico.value = sesion.getPerfilFisico()
+    }
+
+    fun actualizarFisico(context: Context, perfil: PerfilFisico) {
+        SessionManager(context).savePerfilFisico(perfil)
+        _fisico.value = perfil
     }
 
     fun actualizarFoto(context: Context, uri: String) {
@@ -55,5 +71,6 @@ object PerfilStore {
     fun limpiar() {
         _fotoUri.value = null
         _nombre.value = "Usuario"
+        _fisico.value = PerfilFisico()
     }
 }

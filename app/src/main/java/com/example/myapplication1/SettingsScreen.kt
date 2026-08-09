@@ -85,6 +85,7 @@ fun SettingsScreen(
         // Sin esto, el nombre y la foto del usuario anterior seguirian en
         // memoria y apareceran en el encabezado de quien inicie sesion despues.
         PerfilStore.limpiar()
+        AnalisisComidaStore.limpiar()
 
         navController.navigate("login") { popUpTo(navController.graph.startDestinationId) { inclusive = true } }
     }

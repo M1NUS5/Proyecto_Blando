@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import retrofit2.Call
@@ -40,10 +41,17 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 
 /**
- * Intentos totales del analisis de comida (el original mas un reintento).
- * Basta con uno: el primer intento fallido ya deja el servidor encendido.
+ * Intentos totales del analisis de comida (el original mas dos reintentos).
+ *
+ * En pruebas reales, el servicio de Gemini tardo dos solicitudes seguidas en
+ * despejarse durante un pico de saturacion. Con espera de por medio entre cada
+ * intento (ver [ESPERA_ENTRE_INTENTOS_MS]), tres intentos cubren ese caso sin
+ * alargar demasiado la espera percibida por el usuario.
  */
-private const val MAXIMOS_INTENTOS_ANALISIS = 2
+private const val MAXIMOS_INTENTOS_ANALISIS = 3
+
+/** Espera base entre reintentos; crece con cada intento (2s, luego 4s). */
+private const val ESPERA_ENTRE_INTENTOS_MS = 2000L
 
 private val TealPrimary = Color(0xFF26A69A)
 private val TealMedium  = Color(0xFF4DB6AC)
@@ -90,18 +98,26 @@ fun CameraScreen(navController: NavController) {
     val settings by AppSettingsStore.settings.collectAsState()
     val uiColors = appUiColors(settings.temaOscuro)
     val dimens = rememberResponsiveDimens()
-    val scope = rememberCoroutineScope()
 
-    var imageUri by remember { mutableStateOf<Uri?>(null) }
-    var imageBase64 by remember { mutableStateOf<String?>(null) }
-    var imageMediaType by remember { mutableStateOf("image/jpeg") }
-    var resultado by remember { mutableStateOf<FoodAnalysisResponse?>(null) }
-    var preparandoImagen by remember { mutableStateOf(false) }
-    var cargando by remember { mutableStateOf(false) }
-    var reintentando by remember { mutableStateOf(false) }
-    var guardando by remember { mutableStateOf(false) }
-    var guardadoOk by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    // Los datos corporales alimentan la tarjeta de recomendacion. Si el usuario
+    // no los ha llenado, el analisis funciona igual pero sin personalizar.
+    val perfilFisico by PerfilStore.fisico.collectAsState()
+    val metas = remember(perfilFisico) { perfilFisico.calcularMetas() }
+
+    // El analisis vive en un almacen compartido, no en esta pantalla: al cambiar
+    // de pestana la barra inferior destruye la pantalla y se perdia el resultado
+    // que aun no se habia guardado. Ver AnalisisComidaStore.
+    val analisis by AnalisisComidaStore.estado.collectAsState()
+
+    val imageUri = analisis.imagenUri?.let(Uri::parse)
+    val imageBase64 = analisis.imagenBase64
+    val resultado = analisis.resultado
+    val preparandoImagen = analisis.preparandoImagen
+    val cargando = analisis.analizando
+    val guardando = analisis.guardando
+    val guardadoOk = analisis.guardadoOk
+    val error = analisis.error
+
     var resumenDelDia by remember { mutableStateOf<MealSummaryResponse?>(null) }
 
     var pestanaSeleccionada by remember { mutableIntStateOf(0) }
@@ -206,13 +222,15 @@ fun CameraScreen(navController: NavController) {
         val uid = userId
 
         if (uid.isNullOrBlank()) {
-            error = "No se pudo guardar: no hay una sesión de usuario activa."
+            AnalisisComidaStore.actualizar {
+                it.copy(error = "No se pudo guardar: no hay una sesión de usuario activa.")
+            }
             return
         }
 
-        guardando = true
-        guardadoOk = false
-        error = null
+        AnalisisComidaStore.actualizar {
+            it.copy(guardando = true, guardadoOk = false, error = null)
+        }
 
         val comida = MealRequest(
             userId = uid,
@@ -235,20 +253,29 @@ fun CameraScreen(navController: NavController) {
                     call: Call<MealResponse>,
                     response: Response<MealResponse>
                 ) {
-                    guardando = false
-
                     if (response.isSuccessful) {
-                        guardadoOk = true
+                        AnalisisComidaStore.actualizar {
+                            it.copy(guardando = false, guardadoOk = true)
+                        }
                         cargarResumenDelDia()
                         cargarComidas()
                     } else {
-                        error = "No se pudo guardar la comida (código ${response.code()})."
+                        AnalisisComidaStore.actualizar {
+                            it.copy(
+                                guardando = false,
+                                error = "No se pudo guardar la comida (código ${response.code()})."
+                            )
+                        }
                     }
                 }
 
                 override fun onFailure(call: Call<MealResponse>, t: Throwable) {
-                    guardando = false
-                    error = "Error de conexión al guardar: ${t.message}"
+                    AnalisisComidaStore.actualizar {
+                        it.copy(
+                            guardando = false,
+                            error = "Error de conexión al guardar: ${t.message}"
+                        )
+                    }
                 }
             })
     }
@@ -256,13 +283,21 @@ fun CameraScreen(navController: NavController) {
     // El decodificado y la compresion de la fotografia son operaciones costosas,
     // por eso se ejecutan fuera del hilo principal para no congelar la interfaz.
     fun prepararImagen(uri: Uri) {
-        imageUri = uri
-        resultado = null
-        error = null
-        guardadoOk = false
-        preparandoImagen = true
+        AnalisisComidaStore.actualizar {
+            it.copy(
+                imagenUri = uri.toString(),
+                imagenBase64 = null,
+                resultado = null,
+                error = null,
+                guardadoOk = false,
+                preparandoImagen = true
+            )
+        }
 
-        scope.launch {
+        // Mismo alcance de larga vida que los reintentos: si el usuario cambia
+        // de pestana mientras se comprime la fotografia, el trabajo termina y
+        // encuentra la imagen lista al volver.
+        AnalisisComidaStore.alcance.launch {
             val base64 = withContext(Dispatchers.Default) {
                 runCatching {
                     val stream: InputStream? = context.contentResolver.openInputStream(uri)
@@ -271,14 +306,20 @@ fun CameraScreen(navController: NavController) {
                 }.getOrNull()
             }
 
-            preparandoImagen = false
-
-            if (base64 == null) {
-                error = "No se pudo procesar la imagen seleccionada."
-                imageUri = null
-            } else {
-                imageBase64 = base64
-                imageMediaType = "image/jpeg"
+            AnalisisComidaStore.actualizar {
+                if (base64 == null) {
+                    it.copy(
+                        preparandoImagen = false,
+                        error = "No se pudo procesar la imagen seleccionada.",
+                        imagenUri = null
+                    )
+                } else {
+                    it.copy(
+                        preparandoImagen = false,
+                        imagenBase64 = base64,
+                        tipoImagen = "image/jpeg"
+                    )
+                }
             }
         }
     }
@@ -315,23 +356,62 @@ fun CameraScreen(navController: NavController) {
     /**
      * Envia la fotografia al backend para su analisis.
      *
-     * Se reintenta una vez de forma automatica ante fallos de red o de tiempo de
-     * espera. La causa habitual de ese primer fallo es que el servidor estaba
-     * suspendido por inactividad: ese intento inicial lo despierta, y el segundo
-     * ya encuentra el servicio disponible. Reintentar evita que el usuario vea
-     * un error por algo que se resuelve solo en unos segundos.
+     * El backend reenvia el codigo de estado que devuelve Gemini, y ese codigo
+     * distingue dos situaciones muy distintas que no deben tratarse igual:
+     *
+     * - **503 (servidor saturado):** el propio servicio de Gemini esta con
+     *   demanda alta en ese instante. Es momentaneo, y reintentar con una breve
+     *   espera de por medio suele resolverlo.
+     * - **429 (cuota agotada):** la cuenta ya uso su limite de solicitudes.
+     *   Reintentar de inmediato no sirve de nada porque el limite no se libera
+     *   en segundos, asi que en este caso se avisa directamente en lugar de
+     *   reintentar a ciegas.
+     *
+     * El primer intento no espera; los reintentos si, porque la saturacion de
+     * Gemini rara vez se resuelve en el mismo instante en que ocurre.
      */
     fun analizarImagen(intento: Int = 1) {
         val base64 = imageBase64 ?: return
 
-        cargando = true
-        error = null
-        resultado = null
-        guardadoOk = false
-        reintentando = intento > 1
+        AnalisisComidaStore.actualizar {
+            it.copy(
+                analizando = true,
+                error = null,
+                resultado = null,
+                guardadoOk = false,
+                reintentando = intento > 1
+            )
+        }
+
+        // Se envia el perfil solo cuando esta completo: mandarlo a medias haria
+        // que la IA redactara consejos basados en ceros.
+        val perfilParaIA = metas?.let { meta ->
+            PerfilNutricional(
+                edad = perfilFisico.edad,
+                sexo = perfilFisico.sexo.etiqueta,
+                estaturaCm = perfilFisico.estaturaCm,
+                pesoKg = perfilFisico.pesoKg,
+                nivelActividad = perfilFisico.nivelActividad.etiqueta,
+                objetivo = perfilFisico.objetivo.etiqueta,
+                caloriasMeta = meta.caloriasMeta,
+                proteinaMeta = meta.proteinaMeta,
+                carbosMeta = meta.carbosMeta,
+                grasasMeta = meta.grasasMeta,
+                caloriasConsumidas = resumenDelDia?.totalCalories ?: 0,
+                proteinaConsumida = resumenDelDia?.totalProtein ?: 0,
+                carbosConsumidos = resumenDelDia?.totalCarbs ?: 0,
+                grasasConsumidas = resumenDelDia?.totalFats ?: 0
+            )
+        }
 
         RetrofitClient.instance
-            .analyzeFood(FoodAnalysisRequest(imageBase64 = base64, mimeType = imageMediaType))
+            .analyzeFood(
+                FoodAnalysisRequest(
+                    imageBase64 = base64,
+                    mimeType = analisis.tipoImagen,
+                    perfil = perfilParaIA
+                )
+            )
             .enqueue(object : Callback<FoodAnalysisResponse> {
                 override fun onResponse(
                     call: Call<FoodAnalysisResponse>,
@@ -339,42 +419,74 @@ fun CameraScreen(navController: NavController) {
                 ) {
                     val cuerpo = response.body()
 
-                    // Los errores 5xx suelen indicar que el servidor apenas esta
-                    // arrancando, por eso tambien se reintentan.
-                    if (response.code() >= 500 && intento < MAXIMOS_INTENTOS_ANALISIS) {
-                        analizarImagen(intento + 1)
+                    if (response.code() == 429) {
+                        AnalisisComidaStore.actualizar {
+                            it.copy(
+                                analizando = false,
+                                reintentando = false,
+                                error = "Se alcanzó el límite de análisis de IA por ahora. " +
+                                    "Espera unos minutos e intenta de nuevo."
+                            )
+                        }
                         return
                     }
 
-                    cargando = false
-                    reintentando = false
+                    // Errores de saturacion del servicio: se reintenta con una
+                    // breve espera para no repetir la misma foto instantaneamente
+                    // contra un servicio que sigue saturado en ese milisegundo.
+                    if (response.code() >= 500 && intento < MAXIMOS_INTENTOS_ANALISIS) {
+                        AnalisisComidaStore.actualizar { it.copy(reintentando = true) }
+                        AnalisisComidaStore.alcance.launch {
+                            delay(ESPERA_ENTRE_INTENTOS_MS * intento)
+                            analizarImagen(intento + 1)
+                        }
+                        return
+                    }
 
-                    when {
+                    val mensajeError = when {
+                        response.code() >= 500 ->
+                            "El servicio de análisis está saturado en este momento. " +
+                                "Intenta de nuevo en unos segundos."
+
                         !response.isSuccessful || cuerpo == null ->
-                            error = "El servidor no pudo analizar la imagen (código ${response.code()})."
+                            "El servidor no pudo analizar la imagen (código ${response.code()})."
 
                         !cuerpo.isFood ->
-                            error = cuerpo.observation.ifBlank {
-                                "No se detectó comida en la imagen."
-                            }
+                            cuerpo.observation.ifBlank { "No se detectó comida en la imagen." }
 
-                        else -> resultado = cuerpo
+                        else -> null
+                    }
+
+                    AnalisisComidaStore.actualizar {
+                        it.copy(
+                            analizando = false,
+                            reintentando = false,
+                            error = mensajeError,
+                            resultado = if (mensajeError == null) cuerpo else null
+                        )
                     }
                 }
 
                 override fun onFailure(call: Call<FoodAnalysisResponse>, t: Throwable) {
                     if (intento < MAXIMOS_INTENTOS_ANALISIS) {
-                        analizarImagen(intento + 1)
+                        AnalisisComidaStore.actualizar { it.copy(reintentando = true) }
+                        AnalisisComidaStore.alcance.launch {
+                            delay(ESPERA_ENTRE_INTENTOS_MS * intento)
+                            analizarImagen(intento + 1)
+                        }
                         return
                     }
 
-                    cargando = false
-                    reintentando = false
-
-                    error = if (t is java.net.SocketTimeoutException) {
-                        "El servidor tardó demasiado en responder. Vuelve a intentarlo."
-                    } else {
-                        "No se pudo conectar con el servidor. Revisa tu internet e intenta de nuevo."
+                    AnalisisComidaStore.actualizar {
+                        it.copy(
+                            analizando = false,
+                            reintentando = false,
+                            error = if (t is java.net.SocketTimeoutException) {
+                                "El servidor tardó demasiado en responder. Vuelve a intentarlo."
+                            } else {
+                                "No se pudo conectar con el servidor. Revisa tu internet e intenta de nuevo."
+                            }
+                        )
                     }
                 }
             })
@@ -470,10 +582,56 @@ fun CameraScreen(navController: NavController) {
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("${resumen.totalCalories} kcal", fontSize = dimens.bodyFontSize, fontWeight = FontWeight.Bold, color = TealPrimary)
+                            Text(
+                                text = if (metas != null) {
+                                    "${resumen.totalCalories} / ${metas.caloriasMeta} kcal"
+                                } else {
+                                    "${resumen.totalCalories} kcal"
+                                },
+                                fontSize = dimens.bodyFontSize,
+                                fontWeight = FontWeight.Bold,
+                                color = TealPrimary
+                            )
                             Text("P: ${resumen.totalProtein}g", fontSize = dimens.labelFontSize, color = uiColors.textSecondary)
                             Text("C: ${resumen.totalCarbs}g", fontSize = dimens.labelFontSize, color = uiColors.textSecondary)
                             Text("G: ${resumen.totalFats}g", fontSize = dimens.labelFontSize, color = uiColors.textSecondary)
+                        }
+
+                        // Con las metas ya calculadas, el resumen deja de ser un
+                        // dato suelto y pasa a indicar cuanto falta del dia.
+                        metas?.let { meta ->
+                            val restante = meta.caloriasMeta - resumen.totalCalories
+                            val avance = porcentajeDeMeta(resumen.totalCalories, meta.caloriasMeta)
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(uiColors.border.copy(alpha = 0.35f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth((avance / 100f).coerceIn(0f, 1f))
+                                        .fillMaxHeight()
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(if (avance > 100) uiColors.warning else TealPrimary)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Text(
+                                text = if (restante >= 0) {
+                                    "Te quedan $restante kcal para hoy"
+                                } else {
+                                    "Has superado tu meta por ${-restante} kcal"
+                                },
+                                fontSize = dimens.labelFontSize,
+                                color = if (restante >= 0) uiColors.textSecondary else uiColors.warning
+                            )
                         }
                     }
                 }
@@ -576,6 +734,7 @@ fun CameraScreen(navController: NavController) {
                     Text(
                         text = when {
                             preparandoImagen -> "Preparando imagen..."
+                            analisis.reintentando -> "Reintentando..."
                             cargando -> "Analizando..."
                             else -> "Analizar con IA"
                         },
@@ -709,6 +868,17 @@ fun CameraScreen(navController: NavController) {
                                 color = uiColors.textSecondary
                             )
                         }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        SeccionRecomendacion(
+                            res = res,
+                            metas = metas,
+                            resumen = resumenDelDia,
+                            uiColors = uiColors,
+                            dimens = dimens,
+                            onCompletarDatos = { navController.navigate("datos_corporales") }
+                        )
 
                         Spacer(modifier = Modifier.height(16.dp))
 
@@ -983,6 +1153,237 @@ private fun MealHistoryCard(
                 color = uiColors.dangerButton,
                 fontWeight = FontWeight.Bold,
                 fontSize = dimens.labelFontSize
+            )
+        }
+    }
+}
+
+/**
+ * Bloque "Recomendación para ti": traduce el analisis nutricional al contexto
+ * del usuario concreto.
+ *
+ * Las cifras y los porcentajes salen de las metas calculadas con formula, no
+ * del modelo de IA. Del modelo viene unicamente el consejo escrito, para que un
+ * error suyo nunca se convierta en un numero equivocado en pantalla.
+ */
+@Composable
+private fun SeccionRecomendacion(
+    res: FoodAnalysisResponse,
+    metas: MetasNutricionales?,
+    resumen: MealSummaryResponse?,
+    uiColors: AppUiColors,
+    dimens: ResponsiveDimens,
+    onCompletarDatos: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(TealPrimary.copy(alpha = 0.10f), RoundedCornerShape(16.dp))
+            .border(1.dp, TealPrimary.copy(alpha = 0.45f), RoundedCornerShape(16.dp))
+            .padding(14.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.AutoAwesome,
+                contentDescription = null,
+                tint = TealPrimary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "Recomendación para ti",
+                fontSize = dimens.bodyFontSize,
+                fontWeight = FontWeight.Bold,
+                color = TealPrimary
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        if (metas == null) {
+            Text(
+                text = "Agrega tu estatura, peso y edad para que ALYRA calcule si esta " +
+                        "porción encaja en tu día.",
+                fontSize = dimens.labelFontSize,
+                color = uiColors.textSecondary
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedButton(
+                onClick = onCompletarDatos,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, TealPrimary)
+            ) {
+                Text(
+                    text = "Completar mis datos",
+                    color = TealPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = dimens.labelFontSize
+                )
+            }
+            return@Column
+        }
+
+        val consumidas = resumen?.totalCalories ?: 0
+        val totalConEsta = consumidas + res.estimatedCalories
+        val restantes = metas.caloriasMeta - totalConEsta
+        val porcentajeComida = porcentajeDeMeta(res.estimatedCalories, metas.caloriasMeta)
+
+        Text(
+            text = "Esta porción representa el $porcentajeComida% de tus " +
+                    "${metas.caloriasMeta} kcal del día.",
+            fontSize = dimens.bodyFontSize,
+            color = uiColors.textPrimary
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        BarraProgreso(
+            etiqueta = "Calorías de hoy",
+            valor = totalConEsta,
+            meta = metas.caloriasMeta,
+            unidad = "kcal",
+            uiColors = uiColors,
+            dimens = dimens
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = if (restantes >= 0) {
+                "Después de esta comida te quedan $restantes kcal para hoy."
+            } else {
+                "Con esta comida superarías tu meta por ${-restantes} kcal."
+            },
+            fontSize = dimens.labelFontSize,
+            fontWeight = FontWeight.Medium,
+            color = if (restantes >= 0) uiColors.textSecondary else uiColors.warning
+        )
+
+        Spacer(modifier = Modifier.height(14.dp))
+        HorizontalDivider(color = TealPrimary.copy(alpha = 0.25f), thickness = 0.5.dp)
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = "Cómo va tu día en macronutrientes",
+            fontSize = dimens.labelFontSize,
+            fontWeight = FontWeight.Bold,
+            color = uiColors.textSecondary
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        BarraProgreso(
+            etiqueta = "Proteína",
+            valor = (resumen?.totalProtein ?: 0) + res.protein,
+            meta = metas.proteinaMeta,
+            unidad = "g",
+            uiColors = uiColors,
+            dimens = dimens
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        BarraProgreso(
+            etiqueta = "Carbohidratos",
+            valor = (resumen?.totalCarbs ?: 0) + res.carbs,
+            meta = metas.carbosMeta,
+            unidad = "g",
+            uiColors = uiColors,
+            dimens = dimens
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        BarraProgreso(
+            etiqueta = "Grasas",
+            valor = (resumen?.totalFats ?: 0) + res.fats,
+            meta = metas.grasasMeta,
+            unidad = "g",
+            uiColors = uiColors,
+            dimens = dimens
+        )
+
+        if (res.porcionSugerida.isNotBlank()) {
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(uiColors.card, RoundedCornerShape(12.dp))
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Porción sugerida para ti",
+                        fontSize = dimens.labelFontSize,
+                        color = uiColors.textSecondary
+                    )
+                    Text(
+                        text = res.porcionSugerida,
+                        fontSize = dimens.bodyFontSize,
+                        fontWeight = FontWeight.Bold,
+                        color = uiColors.textPrimary
+                    )
+                }
+            }
+        }
+
+        if (res.recomendacion.isNotBlank()) {
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                text = res.recomendacion,
+                fontSize = dimens.bodyFontSize,
+                color = uiColors.textPrimary
+            )
+        }
+    }
+}
+
+/**
+ * Barra de avance hacia una meta diaria. Cuando el valor la rebasa, la barra se
+ * llena por completo y cambia de color en lugar de desbordarse.
+ */
+@Composable
+private fun BarraProgreso(
+    etiqueta: String,
+    valor: Int,
+    meta: Int,
+    unidad: String,
+    uiColors: AppUiColors,
+    dimens: ResponsiveDimens
+) {
+    val porcentaje = porcentajeDeMeta(valor, meta)
+    val excedido = porcentaje > 100
+    val colorBarra = if (excedido) uiColors.warning else TealPrimary
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(text = etiqueta, fontSize = dimens.labelFontSize, color = uiColors.textSecondary)
+            Text(
+                text = "$valor / $meta $unidad",
+                fontSize = dimens.labelFontSize,
+                fontWeight = FontWeight.Bold,
+                color = if (excedido) uiColors.warning else uiColors.textPrimary
+            )
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(uiColors.border.copy(alpha = 0.35f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth((porcentaje / 100f).coerceIn(0f, 1f))
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(colorBarra)
             )
         }
     }

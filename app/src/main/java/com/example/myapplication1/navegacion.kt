@@ -108,6 +108,10 @@ fun Navegacion(onThemeChange: (Boolean) -> Unit) {
             ProfileScreen(navController)
         }
 
+        composable("datos_corporales") {
+            DatosCorporalesScreen(navController)
+        }
+
         composable("IA") {
             IAScreen(navController)
         }

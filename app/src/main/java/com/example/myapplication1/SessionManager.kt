@@ -38,6 +38,31 @@ class SessionManager(context: Context) {
         prefs.edit().putString("photo_uri", uri).apply()
     }
 
+    // --- Datos corporales -------------------------------------------------
+    // Son datos personales de salud, asi que se borran al cerrar sesion: de lo
+    // contrario, quien iniciara sesion despues en el mismo telefono heredaria
+    // el peso y la estatura del usuario anterior.
+
+    fun getPerfilFisico(): PerfilFisico = PerfilFisico(
+        edad = prefs.getInt("perfil_edad", 0),
+        estaturaCm = prefs.getInt("perfil_estatura", 0),
+        pesoKg = prefs.getFloat("perfil_peso", 0f).toDouble(),
+        sexo = Sexo.desde(prefs.getString("perfil_sexo", null)),
+        nivelActividad = NivelActividad.desde(prefs.getString("perfil_actividad", null)),
+        objetivo = ObjetivoPeso.desde(prefs.getString("perfil_objetivo", null))
+    )
+
+    fun savePerfilFisico(perfil: PerfilFisico) {
+        prefs.edit()
+            .putInt("perfil_edad", perfil.edad)
+            .putInt("perfil_estatura", perfil.estaturaCm)
+            .putFloat("perfil_peso", perfil.pesoKg.toFloat())
+            .putString("perfil_sexo", perfil.sexo.name)
+            .putString("perfil_actividad", perfil.nivelActividad.name)
+            .putString("perfil_objetivo", perfil.objetivo.name)
+            .apply()
+    }
+
     fun getUserId(): String? = prefs.getString("id", null)
 
     fun getName(): String? = prefs.getString("name", null)
@@ -121,6 +146,12 @@ class SessionManager(context: Context) {
             .remove("name")
             .remove("email")
             .remove("token")
+            .remove("perfil_edad")
+            .remove("perfil_estatura")
+            .remove("perfil_peso")
+            .remove("perfil_sexo")
+            .remove("perfil_actividad")
+            .remove("perfil_objetivo")
             .putString("theme", savedTheme)
             .apply()
     }

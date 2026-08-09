@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -64,6 +65,7 @@ fun ProfileScreen(navController: NavController) {
     val displayName by PerfilStore.nombre.collectAsState()
     val fotoGuardada by PerfilStore.fotoUri.collectAsState()
     val photoUri = fotoGuardada?.let { Uri.parse(it) }
+    val perfilFisico by PerfilStore.fisico.collectAsState()
 
     val email = session.getEmail() ?: ""
 
@@ -224,6 +226,12 @@ fun ProfileScreen(navController: NavController) {
                 ProfileOption(text = "Cambiar foto", icono = Icons.Default.PhotoCamera, uiColors = uiColors, onClick = {
                     galeria.launch("image/*")
                 })
+                ProfileOption(
+                    text = if (perfilFisico.estaCompleto) "Datos corporales" else "Completar datos corporales",
+                    icono = Icons.Default.MonitorWeight,
+                    uiColors = uiColors,
+                    onClick = { navController.navigate("datos_corporales") }
+                )
                 ProfileOption(text = "Configuración", icono = Icons.Default.Settings, uiColors = uiColors, onClick = {
                     navController.navigate("settings")
                 })
@@ -235,6 +243,7 @@ fun ProfileScreen(navController: NavController) {
                     onClick = {
                         session.logout()
                         PerfilStore.limpiar()
+                        AnalisisComidaStore.limpiar()
                         navController.navigate("login") { popUpTo("home") { inclusive = true } }
                     }
                 )
