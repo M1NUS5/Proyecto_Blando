@@ -135,6 +135,11 @@ fun HomeScreen(navController: NavController) {
     /** Acumula la distancia priorizando la velocidad que informa el receptor. */
     val medidorDistancia = remember { MedidorDistancia() }
 
+    /** Observa los ultimos segundos para distinguir movimiento de reposo. */
+    val ventanaActividad = remember { VentanaActividad() }
+    var cadenciaReciente by remember { mutableStateOf<Double?>(null) }
+    var pasosRecientes by remember { mutableStateOf<Int?>(null) }
+
     LaunchedEffect(Unit) {
         if (
             ActivityCompat.checkSelfPermission(
@@ -173,6 +178,25 @@ fun HomeScreen(navController: NavController) {
             anterior = aceleracionFiltrada,
             nueva = datosReloj.aceleracion
         )
+    }
+
+    // El muestreo va por reloj propio y no por cambios en los pasos: estar
+    // quieto no genera ningun cambio, y es justo el caso que hay que detectar.
+    // Si solo se midiera al variar el contador, la ventana se quedaria congelada
+    // en el ultimo movimiento y nunca reportaria reposo.
+    LaunchedEffect(estadoEntrenamiento) {
+        if (estadoEntrenamiento != "CORRIENDO") {
+            cadenciaReciente = null
+            pasosRecientes = null
+            return@LaunchedEffect
+        }
+
+        while (true) {
+            ventanaActividad.registrar(DatosRelojStore.datos.value.pasos)
+            pasosRecientes = ventanaActividad.pasosRecientes()
+            cadenciaReciente = ventanaActividad.cadenciaReciente()
+            kotlinx.coroutines.delay(2_000L)
+        }
     }
 
     val locationCallback = remember {
@@ -299,6 +323,9 @@ fun HomeScreen(navController: NavController) {
         ultimaUbicacionTelefono = null
         aceleracionFiltrada = 0f
         medidorDistancia.reiniciar()
+        ventanaActividad.reiniciar()
+        cadenciaReciente = null
+        pasosRecientes = null
 
         RunDataStore.iniciarNuevoEntrenamiento()
 
@@ -1023,6 +1050,8 @@ fun HomeScreen(navController: NavController) {
                     sincronizacionTexto = sincronizacionTexto,
                     ultimaActividadTexto = ultimaActividadTexto,
                     mostrarIA = settings.prediccionIAActiva,
+                    cadenciaReciente = cadenciaReciente,
+                    pasosRecientes = pasosRecientes,
                     uiColors = uiColors
                 )
 
@@ -1151,6 +1180,8 @@ fun ResumenEntrenamientoSection(
     sincronizacionTexto: String,
     ultimaActividadTexto: String,
     mostrarIA: Boolean,
+    cadenciaReciente: Double? = null,
+    pasosRecientes: Int? = null,
     uiColors: AppUiColors
 ) {
     val dimens = rememberResponsiveDimens()
@@ -1162,7 +1193,9 @@ fun ResumenEntrenamientoSection(
         pasos = pasos,
         tiempoSegundos = tiempoSegundos,
         aceleracion = aceleracionNumero,
-        pace = ritmo
+        pace = ritmo,
+        cadenciaReciente = cadenciaReciente,
+        pasosRecientes = pasosRecientes
     )
 
     val cadencia = HomeSensorPrecisionUtils.calcularCadencia(
@@ -1556,17 +1589,33 @@ data class ActividadDetectadaHome(
     val intensidad: Int
 )
 
+/**
+ * Clasifica lo que la persona esta haciendo en este momento.
+ *
+ * [cadenciaReciente] son los pasos por minuto de los ultimos segundos, no el
+ * promedio de la sesion. Es la diferencia que permite notar que alguien se
+ * detuvo: antes se usaba el acumulado y la condicion de reposo (`pasos == 0`)
+ * quedaba inalcanzable en cuanto se daba el primer paso, de modo que quien
+ * caminaba y luego se sentaba seguia marcado como "Caminando" para siempre.
+ *
+ * Vale `null` mientras no haya suficiente historia; en ese caso se recurre a la
+ * cadencia acumulada, que sirve para el resumen final del entrenamiento.
+ */
 fun detectarActividadHome(
     bpm: Int,
     pasos: Int,
     tiempoSegundos: Long,
     aceleracion: Float,
-    pace: Double
+    pace: Double,
+    cadenciaReciente: Double? = null,
+    pasosRecientes: Int? = null
 ): ActividadDetectadaHome {
-    val cadencia = HomeSensorPrecisionUtils.calcularCadencia(
+    val cadenciaAcumulada = HomeSensorPrecisionUtils.calcularCadencia(
         pasos = pasos,
         tiempoSegundos = tiempoSegundos
     )
+
+    val cadencia = cadenciaReciente ?: cadenciaAcumulada
 
     if (tiempoSegundos < 8) {
         return ActividadDetectadaHome(
@@ -1576,18 +1625,37 @@ fun detectarActividadHome(
         )
     }
 
-    if (pasos == 0 && aceleracion < 0.70f) {
+    // Sin pasos en la ventana reciente la persona esta quieta, aunque lleve
+    // cientos acumulados de antes.
+    val sinMovimientoReciente = when (pasosRecientes) {
+        null -> pasos == 0
+        else -> pasosRecientes == 0
+    }
+
+    // La aceleracion NO participa en decidir el reposo, y conviene explicar por
+    // que: el reloj envia `aceleracionPromedio`, la media de toda la sesion, que
+    // igual que el contador de pasos nunca vuelve a bajar. Al sentarse tras una
+    // caminata seguia informando cerca de 3 m/s2, de modo que exigirle un valor
+    // pequeno impedia reconocer el reposo y la pantalla se quedaba en
+    // "Analizando" indefinidamente. Los pasos de los ultimos segundos si
+    // distinguen ambas situaciones, y son la señal en la que se apoya esto.
+    if (sinMovimientoReciente) {
         return ActividadDetectadaHome(
             estado = "Reposo",
-            consejo = "Estás en reposo. No se detecta movimiento real.",
+            consejo = if (pasos > 0) {
+                "Estás en reposo. Cuando quieras, retoma el movimiento."
+            } else {
+                "Estás en reposo. No se detecta movimiento real."
+            },
             intensidad = 0
         )
     }
 
-    if (pasos == 0 && bpm in 45..115 && aceleracion < 0.90f) {
+    // Movimiento muy escaso: ni quieto del todo ni caminando de verdad.
+    if (cadenciaReciente != null && cadenciaReciente < 15.0) {
         return ActividadDetectadaHome(
-            estado = "Reposo",
-            consejo = "Frecuencia cardiaca estable y sin pasos detectados.",
+            estado = "Casi detenido",
+            consejo = "Apenas hay movimiento. Retoma el paso para seguir sumando.",
             intensidad = 0
         )
     }
@@ -1651,10 +1719,19 @@ object HomeSensorPrecisionUtils {
         val pace = (tiempoSegundos / 60.0) / distanciaKm
 
         if (pace < 2.5) return 0.0
-        if (pace > 25.0) return 0.0
+
+        // El techo acompaña al rango con el que se entreno la red (hasta 30
+        // min/km, ver generar_dataset.py). Antes estaba en 25 y descartaba
+        // caminatas legitimas: un paseo lento con paradas ronda los 25-30
+        // min/km, y al devolver cero la pantalla de IA lo tomaba como dato
+        // ausente y no mostraba ninguna prediccion.
+        if (pace > PACE_MAXIMO) return 0.0
 
         return pace
     }
+
+    /** Mismo limite superior que cubre el modelo entrenado. */
+    private const val PACE_MAXIMO = 30.0
 
     fun paceTexto(
         pace: Double
@@ -1694,15 +1771,29 @@ object HomeSensorPrecisionUtils {
         return 0.0
     }
 
+    /**
+     * Deja la aceleracion dentro del rango que el reloj puede informar.
+     *
+     * El limite y el trato del exceso deben coincidir con los del reloj
+     * (`PrecisionWearUtils.limpiarAceleracion`, que recorta a 8): antes aqui se
+     * usaba 6 y, peor aun, todo lo que lo superaba se convertia en cero. Como el
+     * reloj envia con normalidad valores de entre 6 y 8 al correr, el telefono
+     * los anulaba uno tras otro hasta dejar la aceleracion final en cero, y la
+     * pantalla de IA descarta ese cero por considerarlo dato ausente. Recortar
+     * en lugar de anular conserva la lectura y mantiene ambos modulos alineados.
+     */
     fun limpiarAceleracion(
         aceleracion: Float
     ): Float {
         return when {
             aceleracion < 0f -> 0f
-            aceleracion > 6f -> 0f
+            aceleracion > MAXIMA_ACELERACION -> MAXIMA_ACELERACION
             else -> aceleracion
         }
     }
+
+    /** Mismo techo que aplica el reloj antes de enviar el dato. */
+    private const val MAXIMA_ACELERACION = 8f
 
     fun aceleracionSuavizada(
         anterior: Float,

@@ -87,11 +87,24 @@ class MedidorDistancia {
     fun procesar(ubicacion: Location, pasos: Int): Double {
         val ahoraMs = ubicacion.time.takeIf { it > 0L } ?: System.currentTimeMillis()
 
-        val precision = if (ubicacion.hasAccuracy()) ubicacion.accuracy else 99f
-        if (precision > PRECISION_MAXIMA_M || pasos <= 0) {
+        // Sin pasos registrados no hubo movimiento de la persona, solo deriva
+        // del receptor. Este si es motivo para descartar la lectura completa.
+        if (pasos <= 0) {
             lecturaAnteriorMs = ahoraMs
             return 0.0
         }
+
+        // La precision se evalua mas abajo, y solo para el camino que usa la
+        // posicion. Descartarla aqui era un error que contradecia el motivo por
+        // el que se eligio la velocidad Doppler: esa medicion proviene del
+        // corrimiento de frecuencia de la señal y no de la posicion calculada,
+        // asi que sigue siendo valida aunque el receptor no logre ubicarse con
+        // exactitud. Al filtrar antes de mirarla se tiraban lecturas buenas y
+        // con ellas el tramo recorrido en ese intervalo: caminando entre
+        // edificios, donde la precision ronda los 20 m, se perdia cerca de la
+        // mitad del recorrido y el ritmo resultante quedaba tan alto que el
+        // analisis de IA lo rechazaba por imposible.
+        val precision = if (ubicacion.hasAccuracy()) ubicacion.accuracy else 99f
 
         val anterior = referencia
         val intervaloMs = if (lecturaAnteriorMs > 0L) ahoraMs - lecturaAnteriorMs else 0L
@@ -118,6 +131,10 @@ class MedidorDistancia {
         }
 
         // ---- Respaldo: diferencia de posiciones con filtro ----
+        // Aqui la precision si es determinante, porque este camino se apoya en
+        // las coordenadas calculadas y no en la velocidad.
+        if (precision > PRECISION_MAXIMA_M) return 0.0
+
         val metros = anterior.distanceTo(ubicacion)
         val segundos = (ahoraMs - anterior.time).coerceAtLeast(0L) / 1000f
 

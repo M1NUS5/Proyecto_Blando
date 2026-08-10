@@ -30,7 +30,11 @@ object SensorPrecisionUtils {
         val pace = (tiempoSegundos / 60.0) / distanciaKm
 
         if (pace < 2.5) return 0.0
-        if (pace > 25.0) return 0.0
+
+        // Mismo techo que en HomeSensorPrecisionUtils: acompaña al rango con el
+        // que se entreno la red (hasta 30 min/km). Con el limite anterior de 25
+        // una caminata lenta se descartaba y la IA se quedaba sin ritmo.
+        if (pace > 30.0) return 0.0
 
         return pace
     }

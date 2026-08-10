@@ -6,21 +6,10 @@ import retrofit2.Callback
 import retrofit2.Response
 
 /**
- * Despierta el servidor por adelantado.
+ * Despierta el servidor al abrir la aplicacion.
  *
- * El backend esta alojado en un plan que suspende el servicio despues de un
- * rato sin recibir peticiones. Al reactivarse, la primera peticion queda en
- * espera cerca de un minuto mientras el contenedor vuelve a arrancar: para el
- * usuario parece que la aplicacion se congelo o que fallo el analisis de la
- * fotografia, cuando en realidad el servidor solo estaba encendiendo.
- *
- * Enviar una peticion ligera en cuanto la aplicacion abre adelanta ese arranque
- * al momento en que el usuario todavia esta navegando, de modo que cuando llega
- * a iniciar sesion o a analizar una comida el servidor ya responde de inmediato.
- *
- * Es intencionalmente silencioso: si falla no se avisa ni se reintenta, porque
- * su unico proposito es ganar tiempo. Cualquier error real aparecera en la
- * peticion que el usuario si esta esperando.
+ * El plan de alojamiento suspende el servicio tras un rato sin uso y la primera
+ * peticion tarda cerca de un minuto. Adelantar ese arranque evita esa espera.
  */
 object DespertadorServidor {
 

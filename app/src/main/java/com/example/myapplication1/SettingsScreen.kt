@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,15 +24,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material3.Icon
@@ -45,6 +45,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -55,9 +58,27 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 
 private val TealPrimary = Color(0xFF26A69A)
-private val TealMedium  = Color(0xFF4DB6AC)
-private val TealLight   = Color(0xFF80CBC4)
 
+/**
+ * Pantalla de configuracion.
+ *
+ * Se reorganizo el 9 de agosto de 2026. Antes eran siete tarjetas del mismo
+ * peso visual, mezclando ajustes que se cambian con datos que solo se consultan:
+ *
+ * - El panel "Sensores y datos en tiempo real" listaba siete lecturas del reloj
+ *   que, estando en Configuracion, siempre aparecen en cero porque no se esta
+ *   entrenando; ademas duplica lo que Home ya muestra en vivo. Se redujo a una
+ *   linea con el estado del reloj, que es el unico dato accionable ("¿esta
+ *   conectado o no?").
+ * - Se mostraba el identificador interno del usuario, un texto como
+ *   "6a4bd90d6b6f348781b48d7a" que no le dice nada a nadie. Ahora se muestra el
+ *   nombre y el correo.
+ * - "Objetivo sugerido: Mejorar ritmo de carrera" era un texto fijo que no
+ *   respondia a nada. El objetivo real del usuario ya vive en sus datos
+ *   corporales, asi que se enlaza esa pantalla en su lugar.
+ * - "Proposito" y "Modulos" describian el proyecto para quien lo desarrolla, no
+ *   para quien lo usa.
+ */
 @Composable
 fun SettingsScreen(
     navController: NavController,
@@ -71,8 +92,15 @@ fun SettingsScreen(
     val datosReloj by DatosRelojStore.datos.collectAsState()
     val uiColors = appUiColors(settings.temaOscuro)
 
+    val nombre by PerfilStore.nombre.collectAsState()
+    val perfilFisico by PerfilStore.fisico.collectAsState()
+
     val sessionManager = SessionManager(context)
-    val userId = sessionManager.getUserId() ?: "No disponible"
+    val correo = sessionManager.getEmail().orEmpty()
+
+    // Al incrementarse se vuelve a preguntar al sistema por los relojes; sirve
+    // para el boton de "Buscar de nuevo" tras conectar el reloj desde fuera.
+    var refrescosReloj by remember { mutableIntStateOf(0) }
 
     fun actualizarConfiguracion(nuevaConfig: AppSettings) {
         AppSettingsStore.actualizar(context, nuevaConfig)
@@ -96,7 +124,7 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .statusBarsPadding()
-                .padding(horizontal = 14.dp)
+                .padding(horizontal = 16.dp)
                 .padding(top = 10.dp, bottom = 24.dp)
         ) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -106,83 +134,226 @@ fun SettingsScreen(
                 Text("Configuración", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = uiColors.textPrimary)
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            SettingsCard(Icons.Default.AccountCircle, "Información de la cuenta", uiColors) {
-                SettingText("ID de usuario", userId, uiColors)
-                SettingText("Estado de sesión", if (userId != "No disponible") "Sesión activa" else "Sin sesión activa", uiColors)
-            }
-
-            SettingsCard(Icons.Default.DirectionsRun, "Preferencias de entrenamiento", uiColors) {
-                UnidadPrincipalSelector(settings.unidadPrincipal, uiColors) { nuevaUnidad ->
-                    actualizarConfiguracion(settings.copy(unidadPrincipal = nuevaUnidad))
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                SettingText("Objetivo sugerido", "Mejorar ritmo de carrera", uiColors)
-                SettingText("Sincronización", if (datosReloj.timestamp > 0L) "Reloj sincronizado" else "Esperando reloj", uiColors)
-            }
-
-            SettingsCard(Icons.Default.AutoAwesome, "Configuración de IA", uiColors) {
-                SettingSwitch(
-                    title = "Predicción automática",
-                    description = if (settings.prediccionIAActiva) "La IA analizará entrenamientos finalizados." else "La IA está apagada en teléfono y reloj.",
-                    checked = settings.prediccionIAActiva,
-                    uiColors = uiColors,
-                    onCheckedChange = { actualizarConfiguracion(settings.copy(prediccionIAActiva = it)) }
+            // --- Cuenta -----------------------------------------------------
+            // Encabezado, no tarjeta: identifica de quien es la sesion sin
+            // competir visualmente con los ajustes, que es lo que se viene a
+            // cambiar aqui.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(uiColors.cardSecondary, RoundedCornerShape(18.dp))
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = nombre,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = uiColors.textPrimary
                 )
-                SettingSwitch(
-                    title = "Mostrar probabilidades del modelo",
-                    description = "Muestra ritmo bajo, óptimo y alto.",
-                    checked = settings.mostrarProbabilidades,
-                    enabled = settings.prediccionIAActiva,
-                    uiColors = uiColors,
-                    onCheckedChange = { actualizarConfiguracion(settings.copy(mostrarProbabilidades = it)) }
-                )
-                SettingSwitch(
-                    title = "Guardar última corrida para análisis",
-                    description = "La última sesión finalizada se usará para IA.",
-                    checked = settings.guardarUltimaCorrida,
-                    enabled = settings.prediccionIAActiva,
-                    uiColors = uiColors,
-                    onCheckedChange = { actualizarConfiguracion(settings.copy(guardarUltimaCorrida = it)) }
-                )
-            }
-
-            SettingsCard(Icons.Default.Palette, "Apariencia", uiColors) {
-                TemaSelector(settings.temaOscuro, uiColors) { oscuro ->
-                    actualizarConfiguracion(settings.copy(temaOscuro = oscuro))
-                    onThemeChange(oscuro)
+                if (correo.isNotBlank()) {
+                    Text(text = correo, fontSize = 13.sp, color = uiColors.textSecondary)
                 }
             }
 
-            SettingsCard(Icons.Default.Watch, "Sensores y datos en tiempo real", uiColors) {
-                SensorStatusRow("GPS / Ubicación", if (datosReloj.estadoEntrenamiento == "CORRIENDO") "Activo durante entrenamiento" else "Disponible", true, uiColors)
-                SensorStatusRow("Tiempo de corrida", "${datosReloj.tiempoSegundos}s", datosReloj.tiempoSegundos > 0, uiColors)
-                SensorStatusRow("Ritmo / Pace", if (datosReloj.pace > 0f) "%.2f min/km".format(datosReloj.pace) else "Sin datos", datosReloj.pace > 0f, uiColors)
-                SensorStatusRow("Frecuencia cardiaca", if (datosReloj.bpm > 0) "${datosReloj.bpm} BPM" else "Esperando BPM", datosReloj.bpm > 0, uiColors)
-                SensorStatusRow("Pasos", datosReloj.pasos.toString(), datosReloj.pasos > 0, uiColors)
-                SensorStatusRow("Aceleración", "%.2f".format(datosReloj.aceleracion), datosReloj.aceleracion > 0f, uiColors)
-                SensorStatusRow("Estado IA recibido", datosReloj.estadoIA, datosReloj.timestamp > 0L, uiColors)
-            }
+            Spacer(modifier = Modifier.height(20.dp))
 
-            SettingsCard(Icons.Default.Notifications, "Notificaciones y alertas", uiColors) {
-                SettingSwitch(
-                    title = "Alertas de ritmo",
-                    description = "Avisos cuando el ritmo sea alto o bajo.",
-                    checked = settings.alertasRitmo,
+            // --- Entrenamiento ----------------------------------------------
+            SeccionAjustes("Entrenamiento", Icons.Default.DirectionsRun, uiColors) {
+                FilaNavegacion(
+                    titulo = "Datos corporales",
+                    valor = if (perfilFisico.estaCompleto) {
+                        "${perfilFisico.estaturaCm} cm · ${perfilFisico.pesoKg.toInt()} kg · ${perfilFisico.objetivo.etiqueta}"
+                    } else {
+                        "Sin completar"
+                    },
+                    icono = Icons.Default.MonitorWeight,
                     uiColors = uiColors,
-                    onCheckedChange = { actualizarConfiguracion(settings.copy(alertasRitmo = it)) }
+                    onClick = { navController.navigate("datos_corporales") }
+                )
+
+                DivisorSuave(uiColors)
+
+                Text(
+                    text = "Unidad de distancia",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = uiColors.textPrimary,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+                SelectorSegmentado(
+                    opciones = listOf("Kilómetros" to "kilometros", "Millas" to "millas"),
+                    valorActual = settings.unidadPrincipal,
+                    uiColors = uiColors,
+                    onSeleccion = { actualizarConfiguracion(settings.copy(unidadPrincipal = it)) }
+                )
+
+                DivisorSuave(uiColors)
+
+                AjusteInterruptor(
+                    titulo = "Alertas de ritmo",
+                    descripcion = "Avisa cuando tu ritmo suba o baje demasiado.",
+                    activo = settings.alertasRitmo,
+                    uiColors = uiColors,
+                    onCambio = { actualizarConfiguracion(settings.copy(alertasRitmo = it)) }
                 )
             }
 
-            SettingsCard(Icons.Default.Info, "Acerca de la app", uiColors) {
-                SettingText("Nombre", "ALYRA - Entrenador Inteligente de Ritmo", uiColors)
-                SettingText("Versión", "1.0", uiColors)
-                SettingText("Propósito", "Monitorear entrenamientos y analizarlos con IA.", uiColors)
-                SettingText("Módulos", "Home, IA, Agenda y Wear OS", uiColors)
+            // --- Inteligencia artificial ------------------------------------
+            SeccionAjustes("Inteligencia artificial", Icons.Default.AutoAwesome, uiColors) {
+                AjusteInterruptor(
+                    titulo = "Análisis automático",
+                    descripcion = if (settings.prediccionIAActiva) {
+                        "Analiza cada entrenamiento al terminarlo."
+                    } else {
+                        "Apagado en el teléfono y en el reloj."
+                    },
+                    activo = settings.prediccionIAActiva,
+                    uiColors = uiColors,
+                    onCambio = { actualizarConfiguracion(settings.copy(prediccionIAActiva = it)) }
+                )
+
+                DivisorSuave(uiColors)
+
+                AjusteInterruptor(
+                    titulo = "Mostrar probabilidades",
+                    descripcion = "Detalle de qué tan seguro está el modelo de cada ritmo.",
+                    activo = settings.mostrarProbabilidades,
+                    habilitado = settings.prediccionIAActiva,
+                    uiColors = uiColors,
+                    onCambio = { actualizarConfiguracion(settings.copy(mostrarProbabilidades = it)) }
+                )
+
+                DivisorSuave(uiColors)
+
+                AjusteInterruptor(
+                    titulo = "Recordar la última corrida",
+                    descripcion = "Guarda la sesión más reciente para volver a analizarla.",
+                    activo = settings.guardarUltimaCorrida,
+                    habilitado = settings.prediccionIAActiva,
+                    uiColors = uiColors,
+                    onCambio = { actualizarConfiguracion(settings.copy(guardarUltimaCorrida = it)) }
+                )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            // --- Apariencia --------------------------------------------------
+            SeccionAjustes("Apariencia", Icons.Default.Palette, uiColors) {
+                AjusteInterruptor(
+                    titulo = "Tema oscuro",
+                    descripcion = "Colores suaves para entrenar de noche.",
+                    activo = settings.temaOscuro,
+                    uiColors = uiColors,
+                    onCambio = { oscuro ->
+                        actualizarConfiguracion(settings.copy(temaOscuro = oscuro))
+                        onThemeChange(oscuro)
+                    }
+                )
+            }
+
+            // --- Reloj -------------------------------------------------------
+            SeccionAjustes("Reloj", Icons.Default.Watch, uiColors) {
+                val relojes by rememberRelojesVinculados(refrescosReloj)
+                val vinculado = relojes.firstOrNull()
+                val enviandoDatos = datosReloj.timestamp > 0L
+
+                // Tres situaciones distintas que conviene no confundir:
+                // sin reloj vinculado, vinculado pero sin datos de ALYRA, y
+                // funcionando. Cada una necesita una accion diferente.
+                val colorEstado = when {
+                    vinculado == null -> uiColors.warning
+                    enviandoDatos -> TealPrimary
+                    else -> uiColors.warning
+                }
+
+                Row(
+                    modifier = Modifier.padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .background(colorEstado, CircleShape)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = vinculado?.nombre ?: "Sin reloj vinculado",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = uiColors.textPrimary
+                        )
+                        Text(
+                            text = when {
+                                vinculado == null ->
+                                    "Vincula tu reloj desde Galaxy Wearable o Wear OS."
+                                enviandoDatos ->
+                                    "Enviando datos a ALYRA."
+                                vinculado.cerca ->
+                                    "Conectado. Abre ALYRA en el reloj para empezar."
+                                else ->
+                                    "Vinculado, pero sin conexión directa por Bluetooth."
+                            },
+                            fontSize = 12.sp,
+                            color = uiColors.textMuted
+                        )
+                    }
+                }
+
+                DivisorSuave(uiColors)
+
+                FilaAccion(
+                    titulo = if (vinculado == null) "Vincular un reloj" else "Administrar mi reloj",
+                    descripcion = "Abre la app donde se emparejan los relojes.",
+                    uiColors = uiColors,
+                    onClick = {
+                        // Si no hay app complementaria instalada, al menos se
+                        // lleva al usuario a Bluetooth en lugar de no hacer nada.
+                        if (!abrirAppDelReloj(context)) abrirAjustesBluetooth(context)
+                    }
+                )
+
+                DivisorSuave(uiColors)
+
+                FilaAccion(
+                    titulo = "Ajustes de Bluetooth",
+                    descripcion = "Útil si el reloj ya está emparejado pero se desconectó.",
+                    uiColors = uiColors,
+                    onClick = { abrirAjustesBluetooth(context) }
+                )
+
+                DivisorSuave(uiColors)
+
+                FilaAccion(
+                    titulo = "Buscar de nuevo",
+                    descripcion = "Vuelve a consultar qué relojes reconoce el sistema.",
+                    uiColors = uiColors,
+                    onClick = { refrescosReloj++ }
+                )
+            }
+
+            // --- Acerca de ---------------------------------------------------
+            SeccionAjustes("Acerca de", Icons.Default.Info, uiColors) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "ALYRA · Entrenador inteligente de ritmo",
+                        fontSize = 13.sp,
+                        color = uiColors.textSecondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "v1.0",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = uiColors.textMuted
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
 
             Button(
                 onClick = { cerrarSesion() },
@@ -196,67 +367,88 @@ fun SettingsScreen(
     }
 }
 
+/**
+ * Bloque de ajustes con titulo fuera de la tarjeta.
+ *
+ * Sacar el titulo del recuadro deja ver de un vistazo cuantas secciones hay al
+ * recorrer la pantalla, en lugar de una sucesion de tarjetas iguales donde el
+ * encabezado se confunde con el contenido.
+ */
 @Composable
-fun SettingsCard(
+private fun SeccionAjustes(
+    titulo: String,
     icono: ImageVector,
-    title: String,
     uiColors: AppUiColors,
-    content: @Composable ColumnScope.() -> Unit
+    contenido: @Composable ColumnScope.() -> Unit
 ) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+    ) {
+        Icon(
+            imageVector = icono,
+            // El titulo que sigue ya nombra la seccion.
+            contentDescription = null,
+            tint = TealPrimary,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = titulo.uppercase(),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = uiColors.textSecondary
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 14.dp)
-            .background(uiColors.card, RoundedCornerShape(20.dp))
-            .border(1.dp, uiColors.border, RoundedCornerShape(20.dp))
-            .padding(16.dp)
+            .background(uiColors.card, RoundedCornerShape(18.dp))
+            .border(1.dp, uiColors.border.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+            .padding(horizontal = 16.dp, vertical = 6.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = icono,
-                // El titulo que sigue ya describe la seccion, por lo que el icono
-                // es decorativo y no debe repetirse en el lector de pantalla.
-                contentDescription = null,
-                tint = uiColors.primaryButton,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(text = title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = uiColors.textPrimary)
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        content()
+        contenido()
     }
+
+    Spacer(modifier = Modifier.height(20.dp))
 }
 
 @Composable
-fun SettingText(label: String, value: String, uiColors: AppUiColors) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-        Text(text = label, fontSize = 12.sp, color = uiColors.textMuted)
-        Text(text = value, fontSize = 14.sp, color = uiColors.textPrimary)
-    }
+private fun DivisorSuave(uiColors: AppUiColors) {
+    HorizontalDivider(
+        color = uiColors.border.copy(alpha = 0.35f),
+        thickness = 0.5.dp
+    )
 }
 
 @Composable
-fun SettingSwitch(
-    title: String,
-    description: String,
-    checked: Boolean,
+private fun AjusteInterruptor(
+    titulo: String,
+    descripcion: String,
+    activo: Boolean,
     uiColors: AppUiColors,
-    enabled: Boolean = true,
-    onCheckedChange: (Boolean) -> Unit
+    habilitado: Boolean = true,
+    onCambio: (Boolean) -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = if (enabled) uiColors.textPrimary else uiColors.textMuted)
-            Text(text = description, fontSize = 12.sp, color = uiColors.textMuted)
+            Text(
+                text = titulo,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (habilitado) uiColors.textPrimary else uiColors.textMuted
+            )
+            Text(text = descripcion, fontSize = 12.sp, color = uiColors.textMuted)
         }
+        Spacer(modifier = Modifier.width(12.dp))
         Switch(
-            checked = checked,
-            enabled = enabled,
-            onCheckedChange = onCheckedChange,
+            checked = activo,
+            enabled = habilitado,
+            onCheckedChange = onCambio,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
                 checkedTrackColor = TealPrimary,
@@ -267,57 +459,125 @@ fun SettingSwitch(
     }
 }
 
+/**
+ * Fila que ejecuta una accion, sin llevar a otra pantalla de la aplicacion.
+ * Se distingue de [FilaNavegacion] en que no muestra la flecha de avance, para
+ * no prometer una navegacion que no ocurre.
+ */
 @Composable
-fun UnidadPrincipalSelector(unidadActual: String, uiColors: AppUiColors, onUnidadChange: (String) -> Unit) {
-    Text("Unidad principal", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = uiColors.textPrimary)
-    Spacer(modifier = Modifier.height(6.dp))
-    OptionRadioRow("Kilómetros", unidadActual == "kilometros", uiColors) { onUnidadChange("kilometros") }
-    OptionRadioRow("Millas", unidadActual == "millas", uiColors) { onUnidadChange("millas") }
+private fun FilaAccion(
+    titulo: String,
+    descripcion: String,
+    uiColors: AppUiColors,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(vertical = 14.dp)
+    ) {
+        Text(
+            text = titulo,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            color = TealPrimary
+        )
+        Text(text = descripcion, fontSize = 12.sp, color = uiColors.textMuted)
+    }
 }
 
+/** Fila que lleva a otra pantalla, con el valor actual como resumen. */
 @Composable
-fun TemaSelector(temaOscuro: Boolean, uiColors: AppUiColors, onTemaChange: (Boolean) -> Unit) {
-    Text("Tema de la app", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = uiColors.textPrimary)
-    Spacer(modifier = Modifier.height(8.dp))
-    OptionRadioRow("Claro", !temaOscuro, uiColors) { onTemaChange(false) }
-    OptionRadioRow("Oscuro", temaOscuro, uiColors) { onTemaChange(true) }
-    Spacer(modifier = Modifier.height(6.dp))
-    Text("Tema seleccionado: ${if (temaOscuro) "Oscuro" else "Claro"}", fontSize = 12.sp, color = uiColors.textMuted)
-}
-
-@Composable
-fun OptionRadioRow(text: String, selected: Boolean, uiColors: AppUiColors, onClick: () -> Unit) {
+private fun FilaNavegacion(
+    titulo: String,
+    valor: String,
+    icono: ImageVector,
+    uiColors: AppUiColors,
+    onClick: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .background(uiColors.cardSecondary, RoundedCornerShape(14.dp))
             .clickable { onClick() }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = text, modifier = Modifier.weight(1f), fontSize = 14.sp, color = uiColors.textPrimary)
-        RadioButton(
-            selected = selected,
-            onClick = onClick,
-            colors = RadioButtonDefaults.colors(selectedColor = TealPrimary, unselectedColor = uiColors.textMuted)
+        Icon(
+            imageVector = icono,
+            contentDescription = null,
+            tint = TealPrimary,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = titulo, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = uiColors.textPrimary)
+            Text(text = valor, fontSize = 12.sp, color = uiColors.textMuted)
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = uiColors.textMuted,
+            modifier = Modifier.size(20.dp)
         )
     }
 }
 
+/**
+ * Selector de dos o mas opciones en una sola fila.
+ *
+ * Sustituye a los botones de radio apilados: para dos opciones excluyentes
+ * ocupaba el doble de alto y obligaba a leer ambas lineas para saber cual estaba
+ * activa, mientras que aqui la seleccionada se distingue de inmediato.
+ */
 @Composable
-fun SensorStatusRow(label: String, value: String, activo: Boolean, uiColors: AppUiColors) {
-    val estadoColor = if (activo) TealPrimary else Color(0xFFFFB74D)
+private fun SelectorSegmentado(
+    opciones: List<Pair<String, String>>,
+    valorActual: String,
+    uiColors: AppUiColors,
+    onSeleccion: (String) -> Unit
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(uiColors.cardSecondary, RoundedCornerShape(12.dp))
+            .padding(4.dp)
     ) {
-        Box(modifier = Modifier.size(10.dp).background(estadoColor, CircleShape))
-        Spacer(modifier = Modifier.padding(horizontal = 4.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = uiColors.textPrimary)
-            Text(text = value, fontSize = 12.sp, color = uiColors.textMuted)
+        opciones.forEach { (etiqueta, valor) ->
+            OpcionSegmento(
+                etiqueta = etiqueta,
+                seleccionada = valorActual == valor,
+                uiColors = uiColors,
+                onClick = { onSeleccion(valor) }
+            )
         }
+    }
+}
+
+@Composable
+private fun RowScope.OpcionSegmento(
+    etiqueta: String,
+    seleccionada: Boolean,
+    uiColors: AppUiColors,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .background(
+                if (seleccionada) TealPrimary else Color.Transparent,
+                RoundedCornerShape(9.dp)
+            )
+            .clickable { onClick() }
+            .padding(vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = etiqueta,
+            fontSize = 14.sp,
+            fontWeight = if (seleccionada) FontWeight.Bold else FontWeight.Normal,
+            color = if (seleccionada) Color.White else uiColors.textSecondary
+        )
     }
 }
 

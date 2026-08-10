@@ -8,11 +8,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -20,7 +23,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -92,6 +100,23 @@ fun IAScreen(navController: NavController) {
         mutableStateOf("Finaliza un entrenamiento en Home para analizarlo automáticamente")
     }
 
+    /**
+     * Indica si hay algo que mostrar. Sin esto la pantalla dibujaba igual todas
+     * sus tarjetas con "No disponible" repetido una docena de veces, que parece
+     * una falla de la aplicacion cuando en realidad solo falta entrenar.
+     */
+    var hayDatos by remember { mutableStateOf(false) }
+
+    /** Se esta consultando el historial del servidor. */
+    var buscandoGuardado by remember { mutableStateOf(false) }
+
+    /**
+     * De donde salieron los datos en pantalla: del entrenamiento recien
+     * terminado o de uno recuperado del historial. Conviene decirlo, porque no
+     * es lo mismo analizar lo que acabas de hacer que algo de hace dias.
+     */
+    var origenDatos by remember { mutableStateOf("") }
+
     fun limpiarPrediccion(mensajeNuevo: String) {
         mensaje = mensajeNuevo
         clase = ""
@@ -113,6 +138,28 @@ fun IAScreen(navController: NavController) {
     ) {
         if (!settings.prediccionIAActiva) {
             limpiarPrediccion("La predicción automática está desactivada desde Configuración")
+            return
+        }
+
+        // Un entrenamiento sin ritmo no siempre significa que algo fallo. Si
+        // ademas casi no hubo pasos, lo que paso es que la persona estuvo
+        // quieta, y eso merece una respuesta propia: antes se le avisaba que
+        // "faltaba el ritmo", como si el GPS se hubiera equivocado, cuando en
+        // realidad no habia ritmo que medir.
+        val cadenciaNumero = cadenceValor.toDoubleOrNull() ?: 0.0
+        val tiempoNumero = timeValor.toDoubleOrNull() ?: 0.0
+
+        if (paceValor.isBlank() && tiempoNumero >= 30.0 && cadenciaNumero < 20.0) {
+            clase = ""
+            etiqueta = "reposo"
+            confianza = ""
+            probBajo = ""
+            probOptimo = ""
+            probAlto = ""
+            resultadoTipo = RESULTADO_REPOSO
+            recomendacion = "Casi no hubo movimiento en esta sesión. Para que ALYRA " +
+                    "pueda analizar tu ritmo, camina o trota al menos unos minutos seguidos."
+            mensaje = "Sesión registrada sin desplazamiento: no hay un ritmo que clasificar."
             return
         }
 
@@ -167,16 +214,112 @@ fun IAScreen(navController: NavController) {
         mensaje = "Predicción realizada con los datos reales del entrenamiento finalizado"
     }
 
+    /**
+     * Rellena la pantalla con el ultimo entrenamiento guardado en el servidor.
+     *
+     * [RunDataStore] solo existe en memoria, asi que se vacia en cuanto el
+     * sistema cierra la aplicacion. Sin este respaldo, quien entrenaba y volvia
+     * a abrir ALYRA encontraba la pantalla de IA en blanco pese a tener
+     * entrenamientos guardados, y parecia que la IA no funcionaba.
+     *
+     * La prediccion se vuelve a calcular con el modelo actual en lugar de
+     * mostrar la que quedo grabada ese dia: los entrenamientos antiguos traen el
+     * resultado del modelo anterior, que no cubria caminata, y mezclarlos daria
+     * respuestas incoherentes entre si.
+     */
+    fun cargarUltimoEntrenamientoGuardado() {
+        val uid = SessionManager(context).getUserId()
+
+        if (uid.isNullOrBlank()) {
+            hayDatos = false
+            limpiarPrediccion("Inicia sesión para ver el análisis de tus entrenamientos.")
+            return
+        }
+
+        buscandoGuardado = true
+
+        RetrofitClient.instance.getActivities(uid)
+            .enqueue(object : retrofit2.Callback<List<ActivityItem>> {
+                override fun onResponse(
+                    call: retrofit2.Call<List<ActivityItem>>,
+                    response: retrofit2.Response<List<ActivityItem>>
+                ) {
+                    buscandoGuardado = false
+
+                    // El servidor los entrega del mas reciente al mas antiguo.
+                    val ultima = response.body()?.firstOrNull()
+
+                    if (!response.isSuccessful || ultima == null) {
+                        hayDatos = false
+                        limpiarPrediccion("Todavía no has terminado ningún entrenamiento.")
+                        return
+                    }
+
+                    fun texto(valor: Double, decimales: Int): String =
+                        if (valor > 0.0) String.format(Locale.US, "%.${decimales}f", valor) else ""
+
+                    pace = texto(ultima.pace, 2)
+
+                    // El servidor guarda la duracion en MINUTOS (ver el envio en
+                    // homescreen y la forma en que la muestra la Agenda), pero
+                    // tanto esta pantalla como el modelo la esperan en segundos:
+                    // se entreno con tiempos de sesion completos, del orden de
+                    // 1800. Sin esta conversion un entrenamiento de 67 s llegaba
+                    // como 1.1 y se mostraba "1 s", ademas de alimentar a la red
+                    // con una cifra fuera de toda escala.
+                    time = texto(ultima.duration * 60.0, 0)
+
+                    distance = texto(ultima.distance, 2)
+                    heartRate = if (ultima.bpm > 0) ultima.bpm.toString() else ""
+                    cadence = texto(ultima.cadence, 0)
+                    acceleration = texto(ultima.acceleration, 2)
+                    steps = if (ultima.steps > 0) ultima.steps.toString() else ""
+
+                    hayDatos = true
+                    origenDatos = if (ultima.date.isNotBlank()) {
+                        "Último entrenamiento guardado · ${ultima.date}"
+                    } else {
+                        "Último entrenamiento guardado"
+                    }
+
+                    ejecutarPrediccionConDatos(
+                        paceValor = pace,
+                        timeValor = time,
+                        heartRateValor = heartRate,
+                        cadenceValor = cadence,
+                        accelerationValor = acceleration
+                    )
+                }
+
+                override fun onFailure(
+                    call: retrofit2.Call<List<ActivityItem>>,
+                    t: Throwable
+                ) {
+                    buscandoGuardado = false
+                    hayDatos = false
+                    limpiarPrediccion(
+                        "No se pudo consultar tu historial. Revisa tu conexión e intenta de nuevo."
+                    )
+                }
+            })
+    }
+
     fun cargarDatosUltimaCorrida() {
         if (!settings.prediccionIAActiva) {
+            hayDatos = false
             limpiarPrediccion("La IA está desactivada. Actívala en Configuración para analizar entrenamientos.")
             return
         }
 
         if (!RunDataStore.hasFinishedRun) {
-            limpiarPrediccion("No hay entrenamiento finalizado para analizar")
+            // Nada en memoria: se recurre al historial del servidor antes de
+            // dar la pantalla por vacia.
+            cargarUltimoEntrenamientoGuardado()
             return
         }
+
+        hayDatos = true
+        origenDatos = "Entrenamiento que acabas de terminar"
 
         val paceReal = if (RunDataStore.lastPace > 0f) {
             String.format(Locale.US, "%.2f", RunDataStore.lastPace)
@@ -392,9 +535,80 @@ fun IAScreen(navController: NavController) {
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
+            if (buscandoGuardado) {
+                IAInfoCard(
+                    title = "Buscando tu último entrenamiento",
+                    subtitle = "Consultando el historial guardado",
+                    uiColors = uiColors
+                ) {
+                    Text(
+                        text = "Un momento...",
+                        fontSize = 15.sp,
+                        color = uiColors.textSecondary
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+            } else if (!hayDatos) {
+                // Una sola tarjeta que explica que hacer, en lugar de repetir
+                // "No disponible" en una docena de campos vacios.
+                IAInfoCard(
+                    title = "Aún no hay nada que analizar",
+                    subtitle = mensaje,
+                    uiColors = uiColors
+                ) {
+                    Text(
+                        text = "Cuando termines un entrenamiento, ALYRA lo analizará aquí " +
+                                "automáticamente: te dirá si tu ritmo fue bajo, óptimo o alto, " +
+                                "y qué conviene ajustar.",
+                        fontSize = 15.sp,
+                        color = uiColors.textSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Button(
+                        onClick = { navController.irASeccion("home") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF26A69A),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Text(
+                            text = "Iniciar un entrenamiento",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = { cargarDatosUltimaCorrida() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = uiColors.cardSecondary,
+                            contentColor = uiColors.textPrimary
+                        )
+                    ) {
+                        Text(text = "Buscar de nuevo", fontSize = 15.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            if (hayDatos) {
             IAInfoCard(
                 title = "Última corrida detectada",
-                subtitle = "Datos finales recibidos desde Home y el reloj",
+                subtitle = origenDatos.ifBlank { "Datos finales recibidos desde Home y el reloj" },
                 uiColors = uiColors
             ) {
                 IADataLine(
@@ -426,7 +640,7 @@ fun IAScreen(navController: NavController) {
                     value = if (RunDataStore.hasFinishedRun) {
                         "Corrida finalizada"
                     } else {
-                        "No hay corrida finalizada"
+                        "Recuperado de tu historial"
                     },
                     uiColors = uiColors
                 )
@@ -500,7 +714,13 @@ fun IAScreen(navController: NavController) {
                 uiColors = uiColors
             )
 
-            if (settings.prediccionIAActiva && settings.mostrarProbabilidades) {
+            // En reposo la red neuronal no llega a consultarse, asi que mostrar
+            // su distribucion en ceros haria creer que fallo cuando lo que pasa
+            // es que no habia nada que clasificar.
+            if (settings.prediccionIAActiva &&
+                settings.mostrarProbabilidades &&
+                resultadoTipo != RESULTADO_REPOSO
+            ) {
                 Spacer(modifier = Modifier.height(16.dp))
 
                 IAInfoCard(
@@ -510,20 +730,26 @@ fun IAScreen(navController: NavController) {
                 ) {
                     IAProbabilityLine(
                         label = "Ritmo bajo",
-                        value = if (probBajo.isNotBlank()) probBajo else "No disponible",
-                        uiColors = uiColors
+                        value = if (probBajo.isNotBlank()) probBajo else "0.00%",
+                        uiColors = uiColors,
+                        acento = Color(0xFF4DB6AC),
+                        esGanadora = resultadoTipo == 0
                     )
 
                     IAProbabilityLine(
                         label = "Ritmo óptimo",
-                        value = if (probOptimo.isNotBlank()) probOptimo else "No disponible",
-                        uiColors = uiColors
+                        value = if (probOptimo.isNotBlank()) probOptimo else "0.00%",
+                        uiColors = uiColors,
+                        acento = Color(0xFF26A69A),
+                        esGanadora = resultadoTipo == 1
                     )
 
                     IAProbabilityLine(
                         label = "Ritmo alto",
-                        value = if (probAlto.isNotBlank()) probAlto else "No disponible",
-                        uiColors = uiColors
+                        value = if (probAlto.isNotBlank()) probAlto else "0.00%",
+                        uiColors = uiColors,
+                        acento = uiColors.warning,
+                        esGanadora = resultadoTipo == 2
                     )
                 }
             }
@@ -543,6 +769,7 @@ fun IAScreen(navController: NavController) {
                     )
                 }
             }
+            } // fin de: if (hayDatos)
 
             Spacer(modifier = Modifier.height(100.dp))
         }
@@ -630,6 +857,37 @@ fun IAInfoCard(
     }
 }
 
+/**
+ * Reposo. No es una clase del modelo -la red solo distingue ritmo bajo, optimo
+ * y alto-, sino una situacion que se resuelve antes de consultarla: sin
+ * desplazamiento no hay ritmo que clasificar.
+ */
+const val RESULTADO_REPOSO = 3
+
+/** Nombre legible de cada clase, en lugar de la etiqueta cruda del modelo. */
+private fun tituloDeClase(resultadoTipo: Int): String = when (resultadoTipo) {
+    0 -> "Ritmo bajo"
+    1 -> "Ritmo óptimo"
+    2 -> "Ritmo alto"
+    RESULTADO_REPOSO -> "En reposo"
+    else -> "Sin analizar"
+}
+
+/**
+ * Convierte "97.35%" en 97.35. Las cifras llegan ya formateadas desde la
+ * pantalla, y aqui hacen falta como numero para dibujar las barras.
+ */
+private fun porcentajeNumerico(texto: String): Float =
+    texto.removeSuffix("%").trim().replace(',', '.').toFloatOrNull()?.coerceIn(0f, 100f) ?: 0f
+
+/**
+ * Tarjeta del resultado de la red neuronal.
+ *
+ * Antes mostraba la salida cruda del modelo -"Clase 0", "Etiqueta ritmo_bajo"-,
+ * que no significa nada para quien usa la aplicacion. Ahora el protagonista es
+ * el nombre legible del ritmo y la recomendacion, y los datos tecnicos quedan
+ * como detalle al pie.
+ */
 @Composable
 fun IAResultadoCard(
     resultadoTipo: Int,
@@ -640,89 +898,163 @@ fun IAResultadoCard(
     recomendacion: String,
     uiColors: AppUiColors
 ) {
-    val cardColor = when (resultadoTipo) {
-        0 -> uiColors.warning.copy(alpha = if (uiColors.background == Color(0xFF101114)) 0.18f else 0.28f)
-        1 -> uiColors.success.copy(alpha = if (uiColors.background == Color(0xFF101114)) 0.18f else 0.28f)
-        2 -> uiColors.dangerButton.copy(alpha = if (uiColors.background == Color(0xFF101114)) 0.18f else 0.25f)
-        else -> uiColors.card
+    // Un ritmo alto no es un error, asi que no se pinta de rojo de alarma: cada
+    // clase tiene un color que la distingue sin dramatizar.
+    val acento = when (resultadoTipo) {
+        0 -> Color(0xFF4DB6AC)
+        1 -> Color(0xFF26A69A)
+        2 -> uiColors.warning
+        RESULTADO_REPOSO -> Color(0xFF80CBC4)
+        else -> uiColors.textMuted
     }
 
-    val borderColor = when (resultadoTipo) {
-        0 -> uiColors.warning
-        1 -> uiColors.success
-        2 -> uiColors.dangerButton
-        else -> uiColors.border
+    val icono = when (resultadoTipo) {
+        0 -> Icons.Default.TrendingUp
+        1 -> Icons.Default.CheckCircle
+        2 -> Icons.Default.LocalFireDepartment
+        RESULTADO_REPOSO -> Icons.Default.Bedtime
+        else -> Icons.Default.AutoAwesome
     }
+
+    val hayResultado = resultadoTipo in 0..2
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = cardColor
-        )
+        // El color va solo aqui. Antes tambien se pintaba en la Column interna y,
+        // al llevar transparencia, el doble pintado oscurecia el centro y dejaba
+        // a la vista un recuadro dentro de otro.
+        colors = CardDefaults.cardColors(containerColor = uiColors.card)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(cardColor)
-                .border(
-                    width = 1.dp,
-                    color = borderColor.copy(alpha = 0.6f),
-                    shape = RoundedCornerShape(22.dp)
+        Column(modifier = Modifier.fillMaxWidth()) {
+
+            // Franja superior con el veredicto, que es lo que el usuario busca.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(acento.copy(alpha = 0.16f))
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(acento),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icono,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Tu ritmo fue",
+                        fontSize = 13.sp,
+                        color = uiColors.textSecondary
+                    )
+                    Text(
+                        text = tituloDeClase(resultadoTipo),
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = uiColors.textPrimary
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.padding(18.dp)) {
+
+                if (hayResultado && confianza.isNotBlank()) {
+                    val valor = porcentajeNumerico(confianza)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Confianza del modelo",
+                            fontSize = 13.sp,
+                            color = uiColors.textSecondary
+                        )
+                        Text(
+                            text = confianza,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = acento
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(uiColors.border.copy(alpha = 0.30f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(valor / 100f)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(acento)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                if (recomendacion.isNotBlank()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(uiColors.cardSecondary, RoundedCornerShape(14.dp))
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lightbulb,
+                            contentDescription = null,
+                            tint = acento,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = recomendacion,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = uiColors.textPrimary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                Text(
+                    text = mensaje,
+                    fontSize = 12.sp,
+                    color = uiColors.textMuted
                 )
-                .padding(18.dp)
-        ) {
-            Text(
-                text = "Resultado de la predicción",
-                fontWeight = FontWeight.Bold,
-                fontSize = 19.sp,
-                color = uiColors.textPrimary
-            )
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                text = mensaje,
-                fontSize = 15.sp,
-                color = uiColors.textSecondary
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            IADataLine(
-                label = "Clase",
-                value = if (clase.isNotBlank()) clase else "No disponible",
-                uiColors = uiColors
-            )
-
-            IADataLine(
-                label = "Etiqueta",
-                value = if (etiqueta.isNotBlank()) etiqueta else "No disponible",
-                uiColors = uiColors
-            )
-
-            IADataLine(
-                label = "Confianza",
-                value = if (confianza.isNotBlank()) confianza else "No disponible",
-                uiColors = uiColors
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = "Recomendación:",
-                fontSize = 14.sp,
-                color = uiColors.textSecondary,
-                fontWeight = FontWeight.Bold
-            )
-
-            Text(
-                text = if (recomendacion.isNotBlank()) recomendacion else "No disponible",
-                fontSize = 15.sp,
-                color = uiColors.textPrimary,
-                fontWeight = FontWeight.SemiBold
-            )
+                // Dato tecnico al pie: util para la demostracion, sin robarle
+                // protagonismo a lo que de verdad le importa al usuario.
+                if (hayResultado && etiqueta.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Salida del modelo: $etiqueta (clase $clase)",
+                        fontSize = 11.sp,
+                        color = uiColors.textMuted
+                    )
+                }
+            }
         }
     }
 }
@@ -775,41 +1107,66 @@ fun IADataLine(
     }
 }
 
+/**
+ * Una fila de la distribucion de probabilidad, con barra.
+ *
+ * Tres porcentajes sueltos obligan a compararlos mentalmente; la barra deja ver
+ * de un vistazo cual domina y por cuanto, que es justo lo que se quiere mostrar
+ * al explicar como decide la red.
+ */
 @Composable
 fun IAProbabilityLine(
     label: String,
     value: String,
-    uiColors: AppUiColors
+    uiColors: AppUiColors,
+    acento: Color = Color(0xFF26A69A),
+    esGanadora: Boolean = false
 ) {
-    Row(
+    val porcentaje = porcentajeNumerico(value)
+    val color = if (esGanadora) acento else uiColors.textMuted
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 7.dp)
-            .background(
-                color = uiColors.cardSecondary,
-                shape = RoundedCornerShape(14.dp)
-            )
-            .border(
-                width = 1.dp,
-                color = uiColors.border,
-                shape = RoundedCornerShape(14.dp)
-            )
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .padding(vertical = 6.dp)
     ) {
-        Text(
-            text = label,
-            fontSize = 15.sp,
-            color = uiColors.textSecondary
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                fontSize = 14.sp,
+                fontWeight = if (esGanadora) FontWeight.Bold else FontWeight.Normal,
+                color = if (esGanadora) uiColors.textPrimary else uiColors.textSecondary
+            )
 
-        Text(
-            text = value,
-            fontSize = 15.sp,
-            color = uiColors.textPrimary,
-            fontWeight = FontWeight.Bold
-        )
+            Text(
+                text = value,
+                fontSize = 14.sp,
+                fontWeight = if (esGanadora) FontWeight.Bold else FontWeight.Medium,
+                color = if (esGanadora) uiColors.textPrimary else uiColors.textSecondary
+            )
+        }
+
+        Spacer(modifier = Modifier.height(5.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(7.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(uiColors.border.copy(alpha = 0.30f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth((porcentaje / 100f).coerceIn(0f, 1f))
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(color)
+            )
+        }
     }
 }
 

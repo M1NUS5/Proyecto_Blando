@@ -15,10 +15,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Fingerprint
@@ -138,6 +142,18 @@ fun AuthScreen(
     val errorPassword = !isLogin && password.isNotBlank() && password.length < LARGO_MINIMO_PASSWORD
     val errorConfirmacion = !isLogin && confirmPassword.isNotBlank() && confirmPassword != password
 
+    // El formulario solo se puede enviar cuando esta completo y sin errores. Asi
+    // se evitan peticiones invalidas y, sobre todo, que un doble toque dispare
+    // dos registros o dos inicios de sesion mientras el servidor responde.
+    val formularioListo = if (isLogin) {
+        email.isNotBlank() && password.isNotBlank() && !errorCorreo
+    } else {
+        name.isNotBlank() &&
+            email.isNotBlank() && !errorCorreo &&
+            password.length >= LARGO_MINIMO_PASSWORD &&
+            confirmPassword == password
+    }
+
     // La huella restaura la sesion guardada en el dispositivo. Si el usuario acaba
     // de crear una cuenta distinta, ofrecerla lo haria entrar con la cuenta
     // anterior, por eso en ese caso se oculta.
@@ -145,6 +161,80 @@ fun AuthScreen(
             !vieneDeRegistro &&
             session.canUseBiometricLogin() &&
             BiometricAuthHelper.isBiometricAvailable(context)
+
+    /**
+     * Envia el formulario. Vive fuera del boton porque la tecla "Listo" del
+     * teclado tambien debe poder dispararlo: antes esa tecla solo cerraba el
+     * teclado y obligaba a buscar el boton con el dedo.
+     *
+     * Comprueba [formularioListo] por su cuenta en lugar de confiar en que el
+     * boton este deshabilitado, ya que desde el teclado no existe esa proteccion.
+     */
+    fun enviarFormulario() {
+        if (loading || !formularioListo) return
+
+        errorServidor = null
+        loading = true
+
+        if (isLogin) {
+            RetrofitClient.instance.login(LoginRequest(email.trim(), password))
+                .enqueue(object : Callback<LoginResponse> {
+                    override fun onResponse(call: Call<LoginResponse>, response: Response<LoginResponse>) {
+                        loading = false
+                        val data = response.body()
+
+                        when {
+                            response.isSuccessful && data != null -> {
+                                session.saveUser(data.user._id, data.user.name, data.user.email, data.token)
+
+                                // Carga el nombre y la foto de quien acaba de entrar.
+                                PerfilStore.cargar(context)
+                                Toast.makeText(context, "Bienvenido, ${data.user.name}", Toast.LENGTH_SHORT).show()
+                                onLoginSuccess()
+                            }
+                            response.isSuccessful -> {
+                                errorServidor = "El servidor respondió sin datos de usuario."
+                            }
+                            else -> {
+                                errorServidor = mensajeDelServidor(
+                                    response.errorBody(),
+                                    "No se pudo iniciar sesión. Revisa tu correo y contraseña."
+                                )
+                            }
+                        }
+                    }
+
+                    override fun onFailure(call: Call<LoginResponse>, t: Throwable) {
+                        loading = false
+                        errorServidor = "Sin conexión con el servidor. Verifica tu internet e intenta de nuevo."
+                    }
+                })
+        } else {
+            RetrofitClient.instance.register(RegisterRequest(name.trim(), email.trim(), password))
+                .enqueue(object : Callback<Map<String, String>> {
+                    override fun onResponse(call: Call<Map<String, String>>, response: Response<Map<String, String>>) {
+                        loading = false
+
+                        if (response.isSuccessful) {
+                            Toast.makeText(context, "Cuenta creada. Ahora inicia sesión.", Toast.LENGTH_SHORT).show()
+                            // Se arrastra el correo recien registrado para que el
+                            // usuario no tenga que volver a escribirlo.
+                            onSwitch(email.trim())
+                        } else {
+                            errorServidor = mensajeDelServidor(
+                                response.errorBody(),
+                                "No se pudo crear la cuenta."
+                            )
+                        }
+                    }
+
+                    override fun onFailure(call: Call<Map<String, String>>, t: Throwable) {
+                        loading = false
+                        errorServidor = "Sin conexión con el servidor. Verifica tu internet e intenta de nuevo."
+                    }
+                })
+        }
+    }
 
     fun iniciarConHuella() {
         if (!huellaDisponible) {
@@ -185,6 +275,14 @@ fun AuthScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                // Sin desplazamiento vertical el formulario de registro no cabe
+                // en pantallas pequenas ni con el tamano de letra del sistema en
+                // grande: al abrirse el teclado, el boton de crear cuenta queda
+                // fuera de vista y no habia manera de alcanzarlo. imePadding
+                // ademas levanta el contenido por encima del teclado en lugar de
+                // dejar que lo tape.
+                .verticalScroll(rememberScrollState())
+                .imePadding()
                 .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -275,9 +373,17 @@ fun AuthScreen(
                     if (!isLogin) {
                         OutlinedTextField(
                             value = name,
-                            onValueChange = { name = it },
-                            placeholder = { Text("Nombre") },
+                            onValueChange = { name = it; errorServidor = null },
+                            label = { Text("Nombre") },
                             leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = TealPrimary) },
+                            // Era el unico campo sin singleLine: al pulsar Enter
+                            // insertaba un salto de linea, el recuadro crecia y
+                            // desacomodaba el formulario.
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Text,
+                                imeAction = ImeAction.Next
+                            ),
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(14.dp),
                             colors = OutlinedTextFieldDefaults.colors(
@@ -294,7 +400,7 @@ fun AuthScreen(
                     OutlinedTextField(
                         value = email,
                         onValueChange = { email = it; errorServidor = null },
-                        placeholder = { Text("Email") },
+                        label = { Text("Correo electrónico") },
                         leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = TealPrimary) },
                         singleLine = true,
                         isError = errorCorreo,
@@ -320,7 +426,7 @@ fun AuthScreen(
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it; errorServidor = null },
-                        placeholder = { Text("Contraseña") },
+                        label = { Text("Contraseña") },
                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = TealPrimary) },
                         trailingIcon = {
                             IconButton(onClick = { mostrarPassword = !mostrarPassword }) {
@@ -353,6 +459,11 @@ fun AuthScreen(
                             keyboardType = KeyboardType.Password,
                             imeAction = if (isLogin) ImeAction.Done else ImeAction.Next
                         ),
+                        // Al iniciar sesion este es el ultimo campo, asi que la
+                        // tecla "Listo" entra directamente sin buscar el boton.
+                        keyboardActions = KeyboardActions(
+                            onDone = { enviarFormulario() }
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -369,7 +480,7 @@ fun AuthScreen(
                         OutlinedTextField(
                             value = confirmPassword,
                             onValueChange = { confirmPassword = it; errorServidor = null },
-                            placeholder = { Text("Confirmar contraseña") },
+                            label = { Text("Confirmar contraseña") },
                             leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = TealPrimary) },
                             visualTransformation = if (mostrarPassword) {
                                 VisualTransformation.None
@@ -384,6 +495,10 @@ fun AuthScreen(
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Password,
                                 imeAction = ImeAction.Done
+                            ),
+                            // Ultimo campo del registro: "Listo" crea la cuenta.
+                            keyboardActions = KeyboardActions(
+                                onDone = { enviarFormulario() }
                             ),
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(14.dp),
@@ -410,85 +525,8 @@ fun AuthScreen(
                         )
                     }
 
-                    // El boton solo se habilita cuando el formulario esta completo y
-                    // sin errores. Asi se evita enviar peticiones invalidas y, sobre
-                    // todo, que un doble toque dispare dos registros o dos inicios
-                    // de sesion mientras el servidor responde.
-                    val formularioListo = if (isLogin) {
-                        email.isNotBlank() && password.isNotBlank() && !errorCorreo
-                    } else {
-                        name.isNotBlank() &&
-                            email.isNotBlank() && !errorCorreo &&
-                            password.length >= LARGO_MINIMO_PASSWORD &&
-                            confirmPassword == password
-                    }
-
                     Button(
-                        onClick = {
-                            if (loading) return@Button
-                            errorServidor = null
-
-                            loading = true
-
-                            if (isLogin) {
-                                RetrofitClient.instance.login(LoginRequest(email.trim(), password))
-                                    .enqueue(object : Callback<LoginResponse> {
-                                        override fun onResponse(call: Call<LoginResponse>, response: Response<LoginResponse>) {
-                                            loading = false
-                                            val data = response.body()
-
-                                            when {
-                                                response.isSuccessful && data != null -> {
-                                                    session.saveUser(data.user._id, data.user.name, data.user.email, data.token)
-
-                                                    // Carga el nombre y la foto de quien acaba de entrar.
-                                                    PerfilStore.cargar(context)
-                                                    Toast.makeText(context, "Bienvenido, ${data.user.name}", Toast.LENGTH_SHORT).show()
-                                                    onLoginSuccess()
-                                                }
-                                                response.isSuccessful -> {
-                                                    errorServidor = "El servidor respondió sin datos de usuario."
-                                                }
-                                                else -> {
-                                                    errorServidor = mensajeDelServidor(
-                                                        response.errorBody(),
-                                                        "No se pudo iniciar sesión. Revisa tu correo y contraseña."
-                                                    )
-                                                }
-                                            }
-                                        }
-
-                                        override fun onFailure(call: Call<LoginResponse>, t: Throwable) {
-                                            loading = false
-                                            errorServidor = "Sin conexión con el servidor. Verifica tu internet e intenta de nuevo."
-                                        }
-                                    })
-                            } else {
-                                RetrofitClient.instance.register(RegisterRequest(name.trim(), email.trim(), password))
-                                    .enqueue(object : Callback<Map<String, String>> {
-                                        override fun onResponse(call: Call<Map<String, String>>, response: Response<Map<String, String>>) {
-                                            loading = false
-
-                                            if (response.isSuccessful) {
-                                                Toast.makeText(context, "Cuenta creada. Ahora inicia sesión.", Toast.LENGTH_SHORT).show()
-                                                // Se arrastra el correo recien registrado para que el
-                                                // usuario no tenga que volver a escribirlo.
-                                                onSwitch(email.trim())
-                                            } else {
-                                                errorServidor = mensajeDelServidor(
-                                                    response.errorBody(),
-                                                    "No se pudo crear la cuenta."
-                                                )
-                                            }
-                                        }
-
-                                        override fun onFailure(call: Call<Map<String, String>>, t: Throwable) {
-                                            loading = false
-                                            errorServidor = "Sin conexión con el servidor. Verifica tu internet e intenta de nuevo."
-                                        }
-                                    })
-                            }
-                        },
+                        onClick = { enviarFormulario() },
                         enabled = formularioListo && !loading,
                         shape = RoundedCornerShape(50),
                         modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -545,6 +583,10 @@ fun AuthScreen(
                     modifier = Modifier.clickable { onSwitch(null) }
                 )
             }
+
+            // Deja aire al final para que el ultimo elemento no quede pegado al
+            // borde inferior cuando el formulario se desplaza.
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }

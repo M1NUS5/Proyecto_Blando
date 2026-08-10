@@ -1563,7 +1563,11 @@ object PrecisionWearUtils {
         val pace = minutos / distanciaKm
 
         if (pace < 2.5f) return 0f
-        if (pace > 25f) return 0f
+
+        // Mismo techo que usa el telefono, que a su vez acompaña al rango con el
+        // que se entreno la red (hasta 30 min/km). Con el limite anterior de 25
+        // una caminata lenta quedaba descartada.
+        if (pace > 30f) return 0f
 
         return pace
     }
