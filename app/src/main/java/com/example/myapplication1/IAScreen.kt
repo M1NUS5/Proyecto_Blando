@@ -217,15 +217,9 @@ fun IAScreen(navController: NavController) {
     /**
      * Rellena la pantalla con el ultimo entrenamiento guardado en el servidor.
      *
-     * [RunDataStore] solo existe en memoria, asi que se vacia en cuanto el
-     * sistema cierra la aplicacion. Sin este respaldo, quien entrenaba y volvia
-     * a abrir ALYRA encontraba la pantalla de IA en blanco pese a tener
-     * entrenamientos guardados, y parecia que la IA no funcionaba.
-     *
-     * La prediccion se vuelve a calcular con el modelo actual en lugar de
-     * mostrar la que quedo grabada ese dia: los entrenamientos antiguos traen el
-     * resultado del modelo anterior, que no cubria caminata, y mezclarlos daria
-     * respuestas incoherentes entre si.
+     * [RunDataStore] solo vive en memoria, asi que sin esto la pantalla aparece
+     * vacia al reabrir la aplicacion. La prediccion se recalcula con el modelo
+     * actual en vez de mostrar la que quedo grabada ese dia.
      */
     fun cargarUltimoEntrenamientoGuardado() {
         val uid = SessionManager(context).getUserId()
@@ -881,12 +875,8 @@ private fun porcentajeNumerico(texto: String): Float =
     texto.removeSuffix("%").trim().replace(',', '.').toFloatOrNull()?.coerceIn(0f, 100f) ?: 0f
 
 /**
- * Tarjeta del resultado de la red neuronal.
- *
- * Antes mostraba la salida cruda del modelo -"Clase 0", "Etiqueta ritmo_bajo"-,
- * que no significa nada para quien usa la aplicacion. Ahora el protagonista es
- * el nombre legible del ritmo y la recomendacion, y los datos tecnicos quedan
- * como detalle al pie.
+ * Tarjeta del resultado de la red neuronal: protagonizan el nombre legible del
+ * ritmo y la recomendacion; la salida cruda del modelo queda al pie.
  */
 @Composable
 fun IAResultadoCard(
@@ -1108,11 +1098,8 @@ fun IADataLine(
 }
 
 /**
- * Una fila de la distribucion de probabilidad, con barra.
- *
- * Tres porcentajes sueltos obligan a compararlos mentalmente; la barra deja ver
- * de un vistazo cual domina y por cuanto, que es justo lo que se quiere mostrar
- * al explicar como decide la red.
+ * Una fila de la distribucion de probabilidad. La barra deja ver de un vistazo
+ * cual clase domina y por cuanto, sin comparar porcentajes mentalmente.
  */
 @Composable
 fun IAProbabilityLine(

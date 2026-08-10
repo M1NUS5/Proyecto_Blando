@@ -59,26 +59,7 @@ import androidx.navigation.NavController
 
 private val TealPrimary = Color(0xFF26A69A)
 
-/**
- * Pantalla de configuracion.
- *
- * Se reorganizo el 9 de agosto de 2026. Antes eran siete tarjetas del mismo
- * peso visual, mezclando ajustes que se cambian con datos que solo se consultan:
- *
- * - El panel "Sensores y datos en tiempo real" listaba siete lecturas del reloj
- *   que, estando en Configuracion, siempre aparecen en cero porque no se esta
- *   entrenando; ademas duplica lo que Home ya muestra en vivo. Se redujo a una
- *   linea con el estado del reloj, que es el unico dato accionable ("¿esta
- *   conectado o no?").
- * - Se mostraba el identificador interno del usuario, un texto como
- *   "6a4bd90d6b6f348781b48d7a" que no le dice nada a nadie. Ahora se muestra el
- *   nombre y el correo.
- * - "Objetivo sugerido: Mejorar ritmo de carrera" era un texto fijo que no
- *   respondia a nada. El objetivo real del usuario ya vive en sus datos
- *   corporales, asi que se enlaza esa pantalla en su lugar.
- * - "Proposito" y "Modulos" describian el proyecto para quien lo desarrolla, no
- *   para quien lo usa.
- */
+/** Pantalla de configuracion, agrupada por lo que el usuario hace en cada parte. */
 @Composable
 fun SettingsScreen(
     navController: NavController,
@@ -368,11 +349,8 @@ fun SettingsScreen(
 }
 
 /**
- * Bloque de ajustes con titulo fuera de la tarjeta.
- *
- * Sacar el titulo del recuadro deja ver de un vistazo cuantas secciones hay al
- * recorrer la pantalla, en lugar de una sucesion de tarjetas iguales donde el
- * encabezado se confunde con el contenido.
+ * Bloque de ajustes con el titulo fuera de la tarjeta, para que las secciones se
+ * distingan al recorrer la pantalla.
  */
 @Composable
 private fun SeccionAjustes(
@@ -524,11 +502,8 @@ private fun FilaNavegacion(
 }
 
 /**
- * Selector de dos o mas opciones en una sola fila.
- *
- * Sustituye a los botones de radio apilados: para dos opciones excluyentes
- * ocupaba el doble de alto y obligaba a leer ambas lineas para saber cual estaba
- * activa, mientras que aqui la seleccionada se distingue de inmediato.
+ * Selector de dos o mas opciones en una sola fila. Ocupa la mitad que unos
+ * botones de radio apilados y la opcion activa se distingue de inmediato.
  */
 @Composable
 private fun SelectorSegmentado(

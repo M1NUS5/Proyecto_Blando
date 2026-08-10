@@ -79,11 +79,8 @@ private fun correoValido(correo: String): Boolean =
     android.util.Patterns.EMAIL_ADDRESS.matcher(correo.trim()).matches()
 
 /**
- * Extrae el mensaje que envia el backend en `{ "error": "..." }`.
- *
- * Sin esto la aplicacion mostraba siempre un texto generico y se perdia la
- * causa real del fallo (por ejemplo "Usuario ya existe" o "Contraseña
- * incorrecta"), que es justo lo que el usuario necesita saber para corregir.
+ * Extrae el mensaje que envia el backend en `{ "error": "..." }`, para mostrar
+ * la causa real ("Usuario ya existe") en lugar de un texto generico.
  */
 private fun mensajeDelServidor(cuerpo: ResponseBody?, porDefecto: String): String {
     val crudo = runCatching { cuerpo?.string() }.getOrNull().orEmpty()
@@ -164,11 +161,8 @@ fun AuthScreen(
 
     /**
      * Envia el formulario. Vive fuera del boton porque la tecla "Listo" del
-     * teclado tambien debe poder dispararlo: antes esa tecla solo cerraba el
-     * teclado y obligaba a buscar el boton con el dedo.
-     *
-     * Comprueba [formularioListo] por su cuenta en lugar de confiar en que el
-     * boton este deshabilitado, ya que desde el teclado no existe esa proteccion.
+     * teclado tambien lo dispara, y desde ahi no existe la proteccion de tener
+     * el boton deshabilitado: por eso comprueba [formularioListo] por su cuenta.
      */
     fun enviarFormulario() {
         if (loading || !formularioListo) return
@@ -275,12 +269,8 @@ fun AuthScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                // Sin desplazamiento vertical el formulario de registro no cabe
-                // en pantallas pequenas ni con el tamano de letra del sistema en
-                // grande: al abrirse el teclado, el boton de crear cuenta queda
-                // fuera de vista y no habia manera de alcanzarlo. imePadding
-                // ademas levanta el contenido por encima del teclado en lugar de
-                // dejar que lo tape.
+                // Sin esto, al abrirse el teclado el boton de crear cuenta queda
+                // fuera de vista en pantallas pequenas y no hay forma de llegar.
                 .verticalScroll(rememberScrollState())
                 .imePadding()
                 .padding(horizontal = 24.dp),

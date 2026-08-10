@@ -4,13 +4,10 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /**
- * Datos corporales del usuario y el calculo de sus metas nutricionales.
+ * Datos corporales del usuario y calculo de sus metas nutricionales.
  *
- * Las cifras de este archivo se obtienen con formulas, no con el modelo de IA.
- * Es una decision deliberada: una formula entrega siempre el mismo resultado
- * para los mismos datos y no puede equivocarse al recordar una cifra, mientras
- * que un modelo de lenguaje si. La IA se reserva para el consejo escrito, que
- * es donde su criterio aporta algo que una formula no puede dar.
+ * Las cifras salen de formulas, no del modelo de IA: una formula da siempre el
+ * mismo resultado. La IA solo redacta el consejo.
  */
 
 enum class Sexo(val etiqueta: String) {
@@ -23,10 +20,7 @@ enum class Sexo(val etiqueta: String) {
     }
 }
 
-/**
- * Multiplicador que convierte el metabolismo basal en gasto energetico diario.
- * Son los factores de actividad usados junto con la ecuacion de Mifflin-St Jeor.
- */
+/** Multiplicador que convierte el metabolismo basal en gasto diario. */
 enum class NivelActividad(
     val etiqueta: String,
     val descripcion: String,
@@ -45,9 +39,8 @@ enum class NivelActividad(
 }
 
 /**
- * Ajuste sobre el gasto diario. Los porcentajes son moderados a proposito: un
- * deficit o superavit agresivo es dificil de sostener y no es responsable
- * sugerirlo desde una aplicacion que no conoce el historial medico de nadie.
+ * Ajuste sobre el gasto diario. Los porcentajes son moderados a proposito: la
+ * aplicacion no conoce el historial medico de nadie.
  */
 enum class ObjetivoPeso(
     val etiqueta: String,
@@ -74,11 +67,7 @@ data class PerfilFisico(
     val nivelActividad: NivelActividad = NivelActividad.MODERADO,
     val objetivo: ObjetivoPeso = ObjetivoPeso.MANTENER
 ) {
-    /**
-     * Los rangos no son caprichosos: fuera de ellos la ecuacion de Mifflin-St
-     * Jeor deja de ser valida, asi que mas vale no calcular nada que entregar
-     * una meta sin sentido.
-     */
+    /** Fuera de estos rangos la ecuacion de Mifflin-St Jeor deja de ser valida. */
     val estaCompleto: Boolean
         get() = edad in RANGO_EDAD &&
                 estaturaCm in RANGO_ESTATURA &&
@@ -108,11 +97,8 @@ data class MetasNutricionales(
 )
 
 /**
- * Calcula las metas diarias con la ecuacion de Mifflin-St Jeor, que es la que
- * mejor se aproxima al gasto real en poblacion general.
- *
- * Devuelve null cuando los datos estan incompletos, para que la interfaz pida
- * llenarlos en vez de mostrar cifras inventadas.
+ * Calcula las metas diarias con la ecuacion de Mifflin-St Jeor.
+ * Devuelve null si los datos estan incompletos, para no inventar cifras.
  */
 fun PerfilFisico.calcularMetas(): MetasNutricionales? {
     if (!estaCompleto) return null
@@ -124,9 +110,8 @@ fun PerfilFisico.calcularMetas(): MetasNutricionales? {
     val gasto = basal * nivelActividad.factor
     val meta = gasto * (1 + objetivo.ajuste)
 
-    // La proteina se fija por peso corporal y las grasas como porcentaje de la
-    // energia; los carbohidratos ocupan lo que sobra. Es el reparto habitual en
-    // nutricion deportiva porque protege la masa muscular en cualquier objetivo.
+    // Proteina por peso corporal, grasas como porcentaje de la energia y
+    // carbohidratos con lo que sobra: el reparto habitual en nutricion deportiva.
     val proteina = pesoKg * objetivo.proteinaPorKilo
     val grasas = (meta * PORCENTAJE_GRASAS) / KCAL_POR_GRAMO_GRASA
     val caloriasRestantes = meta - (proteina * KCAL_POR_GRAMO_PROTEINA) - (grasas * KCAL_POR_GRAMO_GRASA)
@@ -160,10 +145,7 @@ fun categoriaDeImc(imc: Double): String = when {
     else -> "Obesidad"
 }
 
-/**
- * Peso que una porcion representa dentro de la meta diaria, expresado en
- * porcentaje. Se usa para las barras de la tarjeta de recomendacion.
- */
+/** Porcentaje de la meta diaria que representa un valor. Alimenta las barras. */
 fun porcentajeDeMeta(valor: Int, meta: Int): Int {
     if (meta <= 0) return 0
     return ((valor.toDouble() / meta) * 100).roundToInt()

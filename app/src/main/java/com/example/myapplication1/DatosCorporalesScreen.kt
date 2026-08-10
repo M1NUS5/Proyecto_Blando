@@ -29,11 +29,8 @@ private val TealMedium = Color(0xFF4DB6AC)
 
 /**
  * Captura de estatura, peso, edad, sexo, nivel de actividad y objetivo.
- *
- * Todos los campos son necesarios para calcular las metas: la ecuacion de
- * Mifflin-St Jeor no funciona sin sexo ni edad, y el gasto diario no se puede
- * estimar sin el nivel de actividad. Por eso la pantalla muestra el resultado
- * en vivo solo cuando el conjunto esta completo.
+ * Todos hacen falta para la ecuacion de Mifflin-St Jeor, asi que las metas solo
+ * se muestran cuando el conjunto esta completo.
  */
 @Composable
 fun DatosCorporalesScreen(navController: NavController) {

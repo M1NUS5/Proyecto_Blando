@@ -401,11 +401,8 @@ fun HomeScreen(navController: NavController) {
 
         val paceTextoNota = HomeSensorPrecisionUtils.paceTexto(finalPace)
 
-        // Clasificacion del ritmo con el modelo de IA, para que el entrenamiento
-        // quede registrado junto con su analisis y no solo con las metricas crudas.
-        // Solo se ejecuta cuando las entradas son validas: si el pace, los latidos
-        // o la cadencia no se pudieron calcular, la actividad se guarda sin
-        // prediccion en lugar de almacenar un resultado sin sustento.
+        // Solo se clasifica cuando las entradas son validas: sin pace, latidos o
+        // cadencia la actividad se guarda sin prediccion en lugar de inventarla.
         val prediccionIA: PaceResult? = if (
             settings.prediccionIAActiva &&
             finalPace > 0.0 &&
@@ -1593,13 +1590,8 @@ data class ActividadDetectadaHome(
  * Clasifica lo que la persona esta haciendo en este momento.
  *
  * [cadenciaReciente] son los pasos por minuto de los ultimos segundos, no el
- * promedio de la sesion. Es la diferencia que permite notar que alguien se
- * detuvo: antes se usaba el acumulado y la condicion de reposo (`pasos == 0`)
- * quedaba inalcanzable en cuanto se daba el primer paso, de modo que quien
- * caminaba y luego se sentaba seguia marcado como "Caminando" para siempre.
- *
- * Vale `null` mientras no haya suficiente historia; en ese caso se recurre a la
- * cadencia acumulada, que sirve para el resumen final del entrenamiento.
+ * promedio de la sesion: es lo que permite notar que alguien se detuvo. Vale
+ * `null` sin historia suficiente, y entonces se usa la cadencia acumulada.
  */
 fun detectarActividadHome(
     bpm: Int,
@@ -1632,13 +1624,8 @@ fun detectarActividadHome(
         else -> pasosRecientes == 0
     }
 
-    // La aceleracion NO participa en decidir el reposo, y conviene explicar por
-    // que: el reloj envia `aceleracionPromedio`, la media de toda la sesion, que
-    // igual que el contador de pasos nunca vuelve a bajar. Al sentarse tras una
-    // caminata seguia informando cerca de 3 m/s2, de modo que exigirle un valor
-    // pequeno impedia reconocer el reposo y la pantalla se quedaba en
-    // "Analizando" indefinidamente. Los pasos de los ultimos segundos si
-    // distinguen ambas situaciones, y son la señal en la que se apoya esto.
+    // La aceleracion no decide el reposo: el reloj envia el promedio de la
+    // sesion, que nunca vuelve a bajar. Los pasos recientes si lo distinguen.
     if (sinMovimientoReciente) {
         return ActividadDetectadaHome(
             estado = "Reposo",
@@ -1720,11 +1707,8 @@ object HomeSensorPrecisionUtils {
 
         if (pace < 2.5) return 0.0
 
-        // El techo acompaña al rango con el que se entreno la red (hasta 30
-        // min/km, ver generar_dataset.py). Antes estaba en 25 y descartaba
-        // caminatas legitimas: un paseo lento con paradas ronda los 25-30
-        // min/km, y al devolver cero la pantalla de IA lo tomaba como dato
-        // ausente y no mostraba ninguna prediccion.
+        // El techo acompaña al rango con el que se entreno la red (30 min/km).
+        // Un paseo lento con paradas llega a ese ritmo y es igual de valido.
         if (pace > PACE_MAXIMO) return 0.0
 
         return pace
@@ -1744,16 +1728,10 @@ object HomeSensorPrecisionUtils {
     }
 
     /**
-     * Elige la distancia entre las dos fuentes disponibles.
-     *
-     * Antes se daba prioridad incondicional al reloj, pero su receptor es mas
-     * pequeno y pierde señal con mas facilidad que el del telefono: cuando el
-     * reloj subestimaba el recorrido, su valor se imponia aunque el telefono
-     * tuviera una medicion mejor.
+     * Elige la mayor de las dos distancias medidas.
      *
      * Ambos receptores solo pueden equivocarse por debajo -descartan tramos con
-     * mala señal, nunca inventan recorrido- por lo que ante dos mediciones del
-     * mismo trayecto la mayor es la mas completa.
+     * mala señal, nunca inventan recorrido- asi que la mayor es la mas completa.
      */
     fun seleccionarDistanciaSegura(
         distanciaTelefonoKm: Double,
@@ -1772,15 +1750,9 @@ object HomeSensorPrecisionUtils {
     }
 
     /**
-     * Deja la aceleracion dentro del rango que el reloj puede informar.
-     *
-     * El limite y el trato del exceso deben coincidir con los del reloj
-     * (`PrecisionWearUtils.limpiarAceleracion`, que recorta a 8): antes aqui se
-     * usaba 6 y, peor aun, todo lo que lo superaba se convertia en cero. Como el
-     * reloj envia con normalidad valores de entre 6 y 8 al correr, el telefono
-     * los anulaba uno tras otro hasta dejar la aceleracion final en cero, y la
-     * pantalla de IA descarta ese cero por considerarlo dato ausente. Recortar
-     * en lugar de anular conserva la lectura y mantiene ambos modulos alineados.
+     * Recorta la aceleracion al mismo techo que aplica el reloj
+     * (`PrecisionWearUtils.limpiarAceleracion`). Recortar y no anular: un cero
+     * lo interpreta la pantalla de IA como dato ausente.
      */
     fun limpiarAceleracion(
         aceleracion: Float

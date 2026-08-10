@@ -24,13 +24,9 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 
 /**
- * Aviso que aparece en el resto de las secciones cuando hay un entrenamiento en
- * curso.
- *
- * El estado del entrenamiento vive en [RunDataStore], que es global, por lo que
- * la sesion continua aunque el usuario cambie de pestana. Sin este aviso podria
- * olvidar que la dejo activa y creer que la aplicacion no responde o que sus
- * metricas son incorrectas. Al tocarlo regresa a la pantalla de entrenamiento.
+ * Aviso que aparece en las demas secciones cuando hay un entrenamiento en curso.
+ * La sesion sigue viva al cambiar de pestana, asi que conviene recordarlo. Al
+ * tocarlo regresa a la pantalla de entrenamiento.
  */
 @Composable
 fun EntrenamientoActivoBanner(

@@ -17,12 +17,8 @@ import com.google.android.gms.wearable.Wearable
 private const val TAG = "RelojConectado"
 
 /**
- * Reloj vinculado al telefono, tal como lo reporta el sistema.
- *
- * [nombre] es el que muestra el propio dispositivo, por ejemplo "Galaxy Watch6".
- * [cerca] indica que la conexion es directa por Bluetooth; cuando es falso el
- * reloj sigue asociado a la cuenta pero se comunica por internet, y los datos
- * del entrenamiento pueden tardar o no llegar.
+ * Reloj vinculado al telefono. [nombre] es el que muestra el dispositivo, por
+ * ejemplo "Galaxy Watch6"; [cerca] indica conexion directa por Bluetooth.
  */
 data class RelojVinculado(
     val nombre: String,
@@ -30,17 +26,10 @@ data class RelojVinculado(
 )
 
 /**
- * Consulta los relojes vinculados a traves de la capa de datos de Wear OS.
+ * Consulta los relojes vinculados por la capa de datos de Wear OS.
  *
- * Conviene aclarar por que no se usa Bluetooth directamente: ALYRA se comunica
- * con el reloj mediante la Wearable Data Layer de Google Play Services, que se
- * apoya en el emparejamiento que ya hizo el sistema desde la aplicacion
- * complementaria (Galaxy Wearable o Wear OS). Listar dispositivos Bluetooth y
- * dejar elegir uno no serviria: la aplicacion no puede emparejar un reloj por su
- * cuenta, y el que se eligiera ahi no quedaria vinculado a ALYRA.
- *
- * Lo que si aporta valor, y es lo que hace esta funcion, es mostrar el nombre
- * real del reloj que el sistema ya reconoce.
+ * No se usa Bluetooth directamente porque la aplicacion no puede emparejar un
+ * reloj: eso lo hace el sistema desde Galaxy Wearable o Wear OS.
  */
 @Composable
 fun rememberRelojesVinculados(refrescos: Int = 0): State<List<RelojVinculado>> {
@@ -67,12 +56,8 @@ fun rememberRelojesVinculados(refrescos: Int = 0): State<List<RelojVinculado>> {
 }
 
 /**
- * Abre los ajustes de Bluetooth del sistema.
- *
- * Sirve para restablecer la conexion cuando el reloj ya esta emparejado pero se
- * desconecto: sin enlace Bluetooth la capa de datos deja de entregar lo que
- * envia el reloj. No sirve para vincular un reloj nuevo, eso se hace desde la
- * aplicacion complementaria del fabricante.
+ * Abre los ajustes de Bluetooth. Sirve para reconectar un reloj ya emparejado,
+ * no para vincular uno nuevo.
  */
 fun abrirAjustesBluetooth(context: Context) {
     val intento = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
@@ -83,12 +68,8 @@ fun abrirAjustesBluetooth(context: Context) {
 }
 
 /**
- * Abre la aplicacion complementaria donde de verdad se emparejan los relojes.
- *
- * Se intenta primero Galaxy Wearable, que es la que corresponde a los relojes
- * Samsung, y si no esta instalada se recurre a la aplicacion de Wear OS. Cuando
- * no hay ninguna, se devuelve false para que la pantalla ofrezca otra salida en
- * lugar de fallar en silencio.
+ * Abre la aplicacion donde se emparejan los relojes: primero Galaxy Wearable y,
+ * si no esta, Wear OS. Devuelve false cuando no hay ninguna instalada.
  */
 fun abrirAppDelReloj(context: Context): Boolean {
     val paquetes = listOf(

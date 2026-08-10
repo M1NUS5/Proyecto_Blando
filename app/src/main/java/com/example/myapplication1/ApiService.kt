@@ -10,15 +10,7 @@ import retrofit2.http.Query
 
 interface ApiService {
 
-    /**
-     * Comprobacion ligera del estado del servidor.
-     *
-     * Se usa para despertarlo al abrir la aplicacion: el plan de alojamiento
-     * suspende el servicio tras un rato sin uso, y la primera peticion despues
-     * de esa pausa tarda cerca de un minuto mientras el servidor vuelve a
-     * arrancar. Adelantando ese arranque, la primera accion real del usuario ya
-     * encuentra el servidor listo.
-     */
+    /** Comprobacion ligera que se usa para despertar el servidor al abrir la app. */
     @GET("health")
     fun health(): Call<Map<String, String>>
 

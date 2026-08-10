@@ -5,17 +5,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Estado compartido del perfil del usuario: su nombre visible y su fotografia.
+ * Estado compartido del perfil: nombre, fotografia y datos corporales.
  *
- * Estos datos viven en las preferencias del dispositivo, pero leerlos desde
- * cada pantalla por separado provoca que se queden desactualizados: la pantalla
- * de inicio conserva en memoria el valor con el que se creo, de modo que al
- * cambiar la fotografia desde el perfil su encabezado seguia mostrando el icono
- * anterior hasta reiniciar la aplicacion.
- *
- * Publicarlos aqui como flujo observable hace que cualquier pantalla que los
- * muestre se actualice en el momento en que cambian, sin depender de que se
- * vuelva a crear.
+ * Al publicarlos como flujo observable, cualquier pantalla que los muestre se
+ * actualiza en cuanto cambian, sin esperar a que se vuelva a crear.
  */
 object PerfilStore {
 

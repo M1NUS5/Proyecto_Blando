@@ -14,16 +14,9 @@ import androidx.navigation.navArgument
 const val RUTA_INICIO = "home"
 
 /**
- * Navega entre las secciones principales de la barra inferior.
- *
- * Usar `navigate()` directamente apila una pantalla nueva en cada toque: al
- * cambiar varias veces de pestana el historial crece sin limite, el boton Atras
- * recorre todas las visitas anteriores en lugar de salir de la aplicacion, y
- * cada pantalla se vuelve a crear consumiendo memoria y datos.
- *
- * Esta funcion mantiene una sola pantalla sobre la raiz: limpia lo que haya
- * encima de [RUTA_INICIO] y evita duplicados de la misma seccion, que es el
- * comportamiento esperado en una barra de navegacion.
+ * Navega entre las secciones de la barra inferior manteniendo una sola pantalla
+ * sobre la raiz. Con `navigate()` a secas el historial creceria sin limite y el
+ * boton Atras recorreria todas las visitas anteriores.
  */
 fun NavController.irASeccion(ruta: String) {
     if (currentDestination?.route == ruta) return

@@ -23,25 +23,12 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 
 /**
- * Servicio en primer plano que mantiene vivo el registro del entrenamiento
- * cuando el usuario sale de la aplicacion.
+ * Servicio en primer plano que mantiene el registro del entrenamiento cuando el
+ * usuario sale de la aplicacion.
  *
- * Cumple dos funciones:
- *
- * 1. **Continuidad del GPS.** A partir de Android 8 el sistema limita las
- *    actualizaciones de ubicacion de las aplicaciones que quedan en segundo
- *    plano a unas pocas por hora. Con un servicio en primer plano activo la
- *    aplicacion conserva la prioridad necesaria para seguir recibiendo
- *    ubicaciones con normalidad, de modo que la distancia no se congela si el
- *    usuario cambia de aplicacion durante la carrera.
- *
- * 2. **Consulta rapida.** Publica una notificacion permanente con el tiempo,
- *    la distancia y los pasos, para que el usuario revise su avance desde la
- *    barra de notificaciones sin abrir la aplicacion ni mirar el reloj.
- *
- * El servicio no calcula metricas: unicamente lee [RunDataStore] y
- * [DatosRelojStore], que son las mismas fuentes que usa la pantalla principal.
- * Asi la notificacion y la interfaz siempre muestran exactamente lo mismo.
+ * Sin el, Android limita las actualizaciones de ubicacion en segundo plano y la
+ * distancia se congela. Ademas publica una notificacion con tiempo, distancia y
+ * pasos, leyendo las mismas fuentes que la pantalla principal.
  */
 class EntrenamientoService : Service() {
 
@@ -55,15 +42,11 @@ class EntrenamientoService : Service() {
         private const val INTERVALO_ACTUALIZACION_MS = 1000L
 
         /**
-         * Arranca el servicio. Es seguro llamarlo varias veces: si ya esta en
-         * ejecucion, Android simplemente entrega un nuevo `onStartCommand`.
+         * Arranca el servicio; es seguro llamarlo varias veces.
          *
-         * La llamada se protege porque el sistema prohibe arrancar un servicio
-         * en primer plano cuando la aplicacion esta en segundo plano, y el
-         * entrenamiento tambien puede iniciarse desde el reloj con la
-         * aplicacion minimizada. En ese caso el entrenamiento continua
-         * normalmente y solo se queda sin la notificacion, que es preferible a
-         * que la aplicacion se cierre.
+         * Se protege la llamada porque Android prohibe arrancar un servicio en
+         * primer plano desde segundo plano, y el entrenamiento puede iniciarse
+         * desde el reloj. En ese caso se pierde la notificacion, no la sesion.
          */
         fun iniciar(context: Context) {
             val intent = Intent(context, EntrenamientoService::class.java)

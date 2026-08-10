@@ -1,20 +1,11 @@
 package com.example.myapplication1
 
 /**
- * Guarda la actividad de los ultimos segundos para poder distinguir lo que la
- * persona esta haciendo *ahora* de lo que hizo durante todo el entrenamiento.
+ * Guarda los pasos de los ultimos segundos para distinguir lo que la persona
+ * hace *ahora* de lo que hizo en todo el entrenamiento.
  *
- * ### El problema que resuelve
- *
- * La deteccion de actividad usaba el contador acumulado de pasos de la sesion.
- * Con eso, la condicion de reposo era `pasos == 0`, que solo se cumple antes de
- * dar el primer paso: quien caminaba un rato y despues se sentaba seguia
- * apareciendo como "Caminando" indefinidamente, porque ese contador jamas
- * regresa a cero. La cadencia acumulada tampoco servia, ya que al promediarse
- * sobre toda la sesion tarda minutos en reflejar que la persona se detuvo.
- *
- * Comparando el contador de hace unos segundos con el actual, en cambio, un
- * periodo sin pasos se nota de inmediato.
+ * El contador acumulado no sirve para detectar que alguien se detuvo: nunca
+ * vuelve a cero. Comparar el valor de hace unos segundos con el actual si.
  */
 class VentanaActividad(
     /** Cuanto tiempo hacia atras se observa. */
@@ -52,10 +43,8 @@ class VentanaActividad(
     }
 
     /**
-     * Pasos por minuto de los ultimos segundos, o `null` mientras no haya
-     * historia suficiente. Devolver null en vez de cero es deliberado: recien
-     * iniciado el entrenamiento, un cero seria indistinguible de estar quieto y
-     * haria que la pantalla anunciara reposo antes de tener con que afirmarlo.
+     * Pasos por minuto de los ultimos segundos, o `null` si aun no hay historia
+     * suficiente. Devuelve null y no cero para no anunciar reposo al arrancar.
      */
     fun cadenciaReciente(): Double? {
         val lapso = lapsoMs()

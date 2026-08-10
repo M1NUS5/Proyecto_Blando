@@ -40,14 +40,7 @@ import retrofit2.Response
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 
-/**
- * Intentos totales del analisis de comida (el original mas dos reintentos).
- *
- * En pruebas reales, el servicio de Gemini tardo dos solicitudes seguidas en
- * despejarse durante un pico de saturacion. Con espera de por medio entre cada
- * intento (ver [ESPERA_ENTRE_INTENTOS_MS]), tres intentos cubren ese caso sin
- * alargar demasiado la espera percibida por el usuario.
- */
+/** Intentos totales del analisis de comida: el original mas dos reintentos. */
 private const val MAXIMOS_INTENTOS_ANALISIS = 3
 
 /** Espera base entre reintentos; crece con cada intento (2s, luego 4s). */
@@ -356,19 +349,9 @@ fun CameraScreen(navController: NavController) {
     /**
      * Envia la fotografia al backend para su analisis.
      *
-     * El backend reenvia el codigo de estado que devuelve Gemini, y ese codigo
-     * distingue dos situaciones muy distintas que no deben tratarse igual:
-     *
-     * - **503 (servidor saturado):** el propio servicio de Gemini esta con
-     *   demanda alta en ese instante. Es momentaneo, y reintentar con una breve
-     *   espera de por medio suele resolverlo.
-     * - **429 (cuota agotada):** la cuenta ya uso su limite de solicitudes.
-     *   Reintentar de inmediato no sirve de nada porque el limite no se libera
-     *   en segundos, asi que en este caso se avisa directamente en lugar de
-     *   reintentar a ciegas.
-     *
-     * El primer intento no espera; los reintentos si, porque la saturacion de
-     * Gemini rara vez se resuelve en el mismo instante en que ocurre.
+     * El codigo de estado distingue dos casos: 503 es saturacion momentanea de
+     * Gemini y se reintenta con espera; 429 es cuota agotada y no tiene sentido
+     * reintentar, asi que se avisa directamente.
      */
     fun analizarImagen(intento: Int = 1) {
         val base64 = imageBase64 ?: return
@@ -1159,12 +1142,8 @@ private fun MealHistoryCard(
 }
 
 /**
- * Bloque "Recomendación para ti": traduce el analisis nutricional al contexto
- * del usuario concreto.
- *
- * Las cifras y los porcentajes salen de las metas calculadas con formula, no
- * del modelo de IA. Del modelo viene unicamente el consejo escrito, para que un
- * error suyo nunca se convierta en un numero equivocado en pantalla.
+ * Bloque "Recomendación para ti". Los porcentajes salen de las metas calculadas
+ * con formula; del modelo de IA viene unicamente el consejo escrito.
  */
 @Composable
 private fun SeccionRecomendacion(

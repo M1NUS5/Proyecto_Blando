@@ -77,12 +77,9 @@ data class ActivityItem(
 // ---------------------------------------------------------------------------
 
 /**
- * Contexto del usuario que acompana a la fotografia para que la IA pueda
- * redactar un consejo personalizado.
- *
- * Las metas y lo consumido se calculan en la aplicacion y se envian ya
- * resueltos: al modelo se le pide interpretar cifras, no calcularlas, porque
- * las operaciones aritmeticas son justo donde un modelo de lenguaje falla.
+ * Contexto del usuario que acompana a la fotografia para personalizar el consejo.
+ * Las metas van ya calculadas: al modelo se le pide interpretar cifras, no
+ * hacer aritmetica.
  */
 data class PerfilNutricional(
     val edad: Int = 0,
