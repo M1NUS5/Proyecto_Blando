@@ -46,8 +46,6 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MonitorWeight
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
@@ -142,28 +140,32 @@ fun ProfileScreen(navController: NavController) {
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    // Toda la fotografia abre el selector, no solo el icono de la
+                    // esquina: es el area que el usuario intenta tocar.
                     Box(contentAlignment = Alignment.BottomEnd) {
                         if (photoUri != null) {
                             Image(
                                 painter = rememberAsyncImagePainter(photoUri),
-                                contentDescription = "Foto de perfil",
+                                contentDescription = "Cambiar foto de perfil",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
                                     .size(90.dp)
                                     .clip(CircleShape)
                                     .border(2.dp, Color.White, CircleShape)
+                                    .clickable { galeria.launch("image/*") }
                             )
                         } else {
                             Box(
                                 modifier = Modifier
                                     .size(90.dp)
                                     .background(Color.White.copy(alpha = 0.25f), CircleShape)
-                                    .border(2.dp, Color.White, CircleShape),
+                                    .border(2.dp, Color.White, CircleShape)
+                                    .clickable { galeria.launch("image/*") },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     Icons.Default.AccountCircle,
-                                    contentDescription = null,
+                                    contentDescription = "Agregar foto de perfil",
                                     tint = Color.White,
                                     modifier = Modifier.size(58.dp)
                                 )
@@ -223,18 +225,12 @@ fun ProfileScreen(navController: NavController) {
                     nombreTemporal = displayName
                     mostrarDialogNombre = true
                 })
-                ProfileOption(text = "Cambiar foto", icono = Icons.Default.PhotoCamera, uiColors = uiColors, onClick = {
-                    galeria.launch("image/*")
-                })
                 ProfileOption(
                     text = if (perfilFisico.estaCompleto) "Datos corporales" else "Completar datos corporales",
                     icono = Icons.Default.MonitorWeight,
                     uiColors = uiColors,
                     onClick = { navController.navigate("datos_corporales") }
                 )
-                ProfileOption(text = "Configuración", icono = Icons.Default.Settings, uiColors = uiColors, onClick = {
-                    navController.navigate("settings")
-                })
                 ProfileOption(
                     text = "Cerrar sesión",
                     icono = Icons.AutoMirrored.Filled.Logout,

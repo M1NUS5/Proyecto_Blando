@@ -198,7 +198,24 @@ fun IAScreen(navController: NavController) {
             time = timeValor.toFloatOrNull() ?: 0f
         )
 
-        val prediccion = classifier.predict(input)
+        // El modelo puede no haberse podido cargar en este dispositivo, y la
+        // ejecucion misma puede fallar por tratarse de codigo nativo. En ambos
+        // casos se avisa en lugar de dejar caer la aplicacion.
+        if (classifier == null) {
+            hayDatos = false
+            limpiarPrediccion(
+                "El modelo de análisis no se pudo cargar en este dispositivo. " +
+                    "Tus entrenamientos se siguen guardando con normalidad."
+            )
+            return
+        }
+
+        val prediccion = runCatching { classifier.predict(input) }.getOrNull()
+
+        if (prediccion == null) {
+            limpiarPrediccion("No se pudo completar el análisis de este entrenamiento.")
+            return
+        }
 
         clase = prediccion.predictedClass.toString()
         etiqueta = prediccion.label
@@ -613,7 +630,11 @@ fun IAScreen(navController: NavController) {
 
                 IADataLine(
                     label = "Tiempo final",
-                    value = if (time.isNotBlank()) "$time s" else "No disponible",
+                    // El modelo recibe segundos, pero en pantalla se leen mejor
+                    // como cronometro.
+                    value = time.toLongOrNull()
+                        ?.let { formatearTiempo(it) }
+                        ?: "No disponible",
                     uiColors = uiColors
                 )
 

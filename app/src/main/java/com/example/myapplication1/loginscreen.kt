@@ -75,8 +75,27 @@ private val TealSurface    = Color(0xFFE0F2F1)
 /** Longitud minima exigida al crear una cuenta nueva. */
 private const val LARGO_MINIMO_PASSWORD = 6
 
-private fun correoValido(correo: String): Boolean =
-    android.util.Patterns.EMAIL_ADDRESS.matcher(correo.trim()).matches()
+/**
+ * Comprueba la forma del correo antes de molestar al servidor.
+ *
+ * El patron de Android acepta cosas como "a@b.c", asi que se le anaden dos
+ * exigencias: que la terminacion tenga al menos dos letras y que el dominio no
+ * sea un solo caracter. Aun asi, la forma correcta no garantiza que el correo
+ * exista: de eso se encarga el servidor comprobando el dominio.
+ */
+private fun correoValido(correo: String): Boolean {
+    val limpio = correo.trim()
+
+    if (!android.util.Patterns.EMAIL_ADDRESS.matcher(limpio).matches()) return false
+    if (limpio.length > 254) return false
+
+    val dominio = limpio.substringAfterLast('@', "")
+    if (dominio.length < 4 || !dominio.contains('.')) return false
+
+    val terminacion = dominio.substringAfterLast('.', "")
+
+    return terminacion.length >= 2 && terminacion.all { it.isLetter() }
+}
 
 /**
  * Extrae el mensaje que envia el backend en `{ "error": "..." }`, para mostrar

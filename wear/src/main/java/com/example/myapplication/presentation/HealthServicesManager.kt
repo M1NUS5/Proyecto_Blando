@@ -26,9 +26,8 @@ class HealthServicesManager(
     private var ejercicioIniciado: Boolean = false
 
     /**
-     * Indica si el sensor optico esta entregando mediciones confiables.
-     * Arranca en falso: las primeras lecturas, mientras el sensor se acopla a
-     * la muneca, suelen ser imprecisas y no deben mostrarse como definitivas.
+     * Indica si el sensor optico ya entrega mediciones confiables. Arranca en
+     * falso porque las primeras lecturas, al acoplarse a la muneca, no lo son.
      */
     private var sensorDisponible: Boolean = false
 
@@ -56,11 +55,8 @@ class HealthServicesManager(
             }
 
             override fun onExerciseUpdateReceived(update: ExerciseUpdate) {
-                // El sensor optico entrega lecturas incluso cuando el reloj esta
-                // flojo o recien colocado, y en esos momentos son poco confiables.
-                // Solo se aceptan cuando el propio sistema declara la medicion
-                // como disponible; mientras se estabiliza se avisa al usuario en
-                // lugar de mostrar un valor que puede estar equivocado.
+                // Solo se aceptan las lecturas que el sistema declara confiables:
+                // con el reloj flojo o recien puesto, el sensor igual reporta.
                 if (!sensorDisponible) {
                     onEstado("Estabilizando sensor cardiaco...")
                     return

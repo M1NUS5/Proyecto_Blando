@@ -16,6 +16,12 @@
     <!-- Necesario a partir de Android 13 para poder mostrar la notificacion. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
+    <!--
+        Contador de pasos del propio telefono, para poder entrenar sin reloj.
+        Desde Android 10 el acceso a los sensores de pasos requiere este permiso.
+    -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION"/>
+
     <application
         android:allowBackup="true"
         android:usesCleartextTraffic="true"

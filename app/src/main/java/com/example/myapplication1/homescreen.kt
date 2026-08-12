@@ -94,6 +94,25 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Silencio del reloj a partir del cual se considera que ya no esta enviando.
+ * Envia cada segundo, asi que quince deja margen de sobra ante un tropiezo.
+ */
+private const val MAXIMA_ESPERA_RELOJ_MS = 15_000L
+
+/** Cierto mientras el reloj siga entregando lecturas. */
+private fun relojActivo(datos: DatosReloj): Boolean =
+    datos.timestamp > 0L &&
+        System.currentTimeMillis() - datos.timestamp < MAXIMA_ESPERA_RELOJ_MS
+
+/**
+ * Pasos a usar: los del reloj mientras este enviando, o los del telefono en su
+ * defecto. Se resuelve en un solo lugar para que la pantalla, el medidor de
+ * distancia y el detector de actividad no puedan discrepar entre si.
+ */
+private fun pasosDisponibles(datos: DatosReloj, pasosDelTelefono: Int): Int =
+    if (relojActivo(datos)) datos.pasos else pasosDelTelefono
+
 @Composable
 fun HomeScreen(navController: NavController) {
     val context = LocalContext.current
@@ -134,6 +153,30 @@ fun HomeScreen(navController: NavController) {
 
     /** Acumula la distancia priorizando la velocidad que informa el receptor. */
     val medidorDistancia = remember { MedidorDistancia() }
+
+    /** Cuenta pasos con los sensores del telefono cuando no hay reloj. */
+    val contadorPasos = remember { ContadorPasosTelefono(context) }
+
+    /**
+     * Pasos que usa toda la pantalla. Se prefieren los del reloj mientras siga
+     * enviando, porque van en la muneca y son mas fieles; si deja de hacerlo se
+     * recurre a los del telefono, ya que tanto la distancia como el ritmo exigen
+     * pasos como confirmacion de movimiento y sin ellos quedarian en cero.
+     *
+     * Se comprueba que el dato sea reciente y no solo que exista: el almacen
+     * conserva lo ultimo que llego, de modo que un reloj apagado a media sesion
+     * dejaria su cifra congelada y taparia al contador del telefono.
+     */
+    val pasosEfectivos = pasosDisponibles(datosReloj, contadorPasos.pasos)
+
+    /**
+     * Decide si se muestran las metricas que solo el reloj puede medir.
+     *
+     * La deteccion sigue siendo automatica; el ajuste de Configuracion solo
+     * puede ocultarlas, nunca forzar que aparezcan cuando no hay datos. Asi,
+     * dejarlo mal puesto no impide que la aplicacion registre el entrenamiento.
+     */
+    val relojEnviando = !settings.soloTelefono && relojActivo(datosReloj)
 
     /** Observa los ultimos segundos para distinguir movimiento de reposo. */
     val ventanaActividad = remember { VentanaActividad() }
@@ -192,7 +235,12 @@ fun HomeScreen(navController: NavController) {
         }
 
         while (true) {
-            ventanaActividad.registrar(DatosRelojStore.datos.value.pasos)
+            val pasosAhora = pasosDisponibles(
+                DatosRelojStore.datos.value,
+                contadorPasos.pasos
+            )
+
+            ventanaActividad.registrar(pasosAhora)
             pasosRecientes = ventanaActividad.pasosRecientes()
             cadenciaReciente = ventanaActividad.cadenciaReciente()
             kotlinx.coroutines.delay(2_000L)
@@ -212,13 +260,21 @@ fun HomeScreen(navController: NavController) {
                     99f
                 }
 
-                if (accuracy > 18f) {
-                    RunDataStore.currentTimeMs = System.currentTimeMillis()
-                    return
-                }
-
+                // La lectura pasa siempre al medidor, aunque la precision sea
+                // mala: el medidor integra la velocidad Doppler, que no depende
+                // de que el receptor logre ubicarse, y ya descarta por su cuenta
+                // lo que no sirve. Cortar aqui lo dejaba sin datos y, al abrirse
+                // huecos entre lecturas aceptadas, calculaba velocidades
+                // imposibles que tambien rechazaba: el resultado era una ruta
+                // dibujada en el mapa con 0.00 km de distancia.
                 val newPoint = LatLng(location.latitude, location.longitude)
-                val pasosActuales = DatosRelojStore.datos.value.pasos
+
+                // Sin reloj se usan los pasos del telefono: el medidor los exige
+                // como confirmacion de movimiento, y sin ellos no habria distancia.
+                val pasosActuales = pasosDisponibles(
+                    DatosRelojStore.datos.value,
+                    contadorPasos.pasos
+                )
 
                 // El calculo de la distancia queda a cargo del medidor, que
                 // prioriza la velocidad informada por el receptor sobre la
@@ -231,10 +287,17 @@ fun HomeScreen(navController: NavController) {
                 val anterior = ultimaUbicacionTelefono
                 val separacion = anterior?.distanceTo(location) ?: Float.MAX_VALUE
 
+                // El trazo del mapa si necesita una posicion decente, aunque la
+                // distancia ya se haya contabilizado: un punto muy impreciso
+                // dibujaria un salto que no ocurrio.
+                val sirveParaDibujar = accuracy <= 35f
+
                 // Se agrega un punto al trazo cuando hubo avance medido o cuando
                 // el desplazamiento es lo bastante grande para no ensuciar la
                 // linea con la deriva del receptor estando quieto.
-                if (anterior == null || metrosSumados > 0.0 || separacion >= maxOf(2.5f, accuracy)) {
+                if (sirveParaDibujar &&
+                    (anterior == null || metrosSumados > 0.0 || separacion >= maxOf(2.5f, accuracy))
+                ) {
                     ultimaUbicacionTelefono = location
                     pathPoints = pathPoints + newPoint
 
@@ -299,10 +362,39 @@ fun HomeScreen(navController: NavController) {
         }
     }
 
+    // Permiso del contador de pasos del telefono, necesario desde Android 10.
+    // Igual que el de notificaciones, no bloquea nada: quien entrena con reloj
+    // no lo necesita, y sin el simplemente no se cuentan pasos desde el telefono.
+    val permisoPasosLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { concedido ->
+        if (!concedido) {
+            Toast.makeText(
+                context,
+                "Sin permiso de actividad física no se pueden contar pasos desde el teléfono.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && contadorPasos.disponible) {
+            val concedido = ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACTIVITY_RECOGNITION
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!concedido) {
+                permisoPasosLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+            }
+        }
+    }
+
     @SuppressLint("MissingPermission")
     fun iniciarEntrenamientoDesdeTelefono(
         enviarAlReloj: Boolean,
-        validarPermiso: Boolean
+        validarPermiso: Boolean,
+        instanteMs: Long = 0L
     ) {
         if (validarPermiso && !tienePermisoUbicacion()) {
             accionPendientePermiso = ACCION_INICIAR
@@ -326,8 +418,9 @@ fun HomeScreen(navController: NavController) {
         ventanaActividad.reiniciar()
         cadenciaReciente = null
         pasosRecientes = null
+        contadorPasos.iniciar()
 
-        RunDataStore.iniciarNuevoEntrenamiento()
+        RunDataStore.iniciarNuevoEntrenamiento(instanteMs)
 
         // El servicio se arranca despues de fijar el estado para que la primera
         // notificacion ya muestre el entrenamiento en curso.
@@ -336,7 +429,8 @@ fun HomeScreen(navController: NavController) {
 
     fun reanudarEntrenamientoDesdeTelefono(
         enviarAlReloj: Boolean,
-        validarPermiso: Boolean
+        validarPermiso: Boolean,
+        instanteMs: Long = 0L
     ) {
         if (validarPermiso && !tienePermisoUbicacion()) {
             accionPendientePermiso = ACCION_REANUDAR
@@ -353,13 +447,14 @@ fun HomeScreen(navController: NavController) {
         }
 
         ultimaUbicacionTelefono = null
-        RunDataStore.reanudarEntrenamiento()
+        contadorPasos.reanudar()
+        RunDataStore.reanudarEntrenamiento(instanteMs)
 
         // Si el servicio se hubiera detenido, se vuelve a levantar al reanudar.
         EntrenamientoService.iniciar(context)
     }
 
-    fun pausarEntrenamientoDesdeTelefono(enviarAlReloj: Boolean = true) {
+    fun pausarEntrenamientoDesdeTelefono(enviarAlReloj: Boolean = true, instanteMs: Long = 0L) {
         if (enviarAlReloj) {
             enviarComandoEntrenamiento(
                 context = context,
@@ -370,8 +465,9 @@ fun HomeScreen(navController: NavController) {
 
         fusedLocationClient.removeLocationUpdates(locationCallback)
         ultimaUbicacionTelefono = null
+        contadorPasos.pausar()
 
-        RunDataStore.pausarEntrenamiento()
+        RunDataStore.pausarEntrenamiento(instanteMs)
     }
 
     fun guardarActividadAutomatica(
@@ -410,7 +506,7 @@ fun HomeScreen(navController: NavController) {
             cadenciaFinal > 0.0
         ) {
             runCatching {
-                PaceClassifierProvider.obtener(context).predict(
+                PaceClassifierProvider.obtener(context)?.predict(
                     PaceInput(
                         pace = finalPace.toFloat(),
                         heartRate = bpmReloj.toFloat(),
@@ -501,7 +597,7 @@ fun HomeScreen(navController: NavController) {
             })
     }
 
-    fun finalizarEntrenamientoDesdeTelefono(enviarAlReloj: Boolean = true) {
+    fun finalizarEntrenamientoDesdeTelefono(enviarAlReloj: Boolean = true, instanteMs: Long = 0L) {
         if (enviarAlReloj) {
             enviarComandoEntrenamiento(
                 context = context,
@@ -515,23 +611,36 @@ fun HomeScreen(navController: NavController) {
         fusedLocationClient.removeLocationUpdates(locationCallback)
         ultimaUbicacionTelefono = null
 
+        // Los datos se leen de sus fuentes aqui mismo y no se toman de la
+        // composicion.
+        //
+        // Cuando se finaliza desde el reloj, esta funcion la invoca un escucha
+        // creado con `DisposableEffect(Unit)`, es decir una sola vez al abrir la
+        // pantalla. Ese escucha conserva la version de la funcion de aquella
+        // primera composicion, cuando todavia no habia llegado ningun dato: los
+        // pasos valian cero, y sin pasos no hay distancia, ni ritmo, ni
+        // cadencia. Por eso un entrenamiento terminado desde el reloj se
+        // guardaba vacio y la IA lo clasificaba como reposo.
+        val datosActuales = DatosRelojStore.datos.value
+        val pasosFinales = pasosDisponibles(datosActuales, contadorPasos.pasos)
+
         val distanciaTelefonoKm = RunDataStore.phoneDistanceMeters / 1000.0
-        val distanciaRelojKm = datosReloj.distancia.toDouble()
+        val distanciaRelojKm = datosActuales.distancia.toDouble()
 
         val finalDistanceKm = HomeSensorPrecisionUtils.seleccionarDistanciaSegura(
             distanciaTelefonoKm = distanciaTelefonoKm,
             distanciaRelojKm = distanciaRelojKm,
-            pasos = datosReloj.pasos
+            pasos = pasosFinales
         )
 
         val finalPace = HomeSensorPrecisionUtils.calcularPaceSeguro(
             distanciaKm = finalDistanceKm,
             tiempoSegundos = finalTimeSeconds,
-            pasos = datosReloj.pasos
+            pasos = pasosFinales
         )
 
         val finalCadence = HomeSensorPrecisionUtils.calcularCadencia(
-            pasos = datosReloj.pasos,
+            pasos = pasosFinales,
             tiempoSegundos = finalTimeSeconds
         )
 
@@ -540,8 +649,8 @@ fun HomeScreen(navController: NavController) {
         )
 
         val actividadFinal = detectarActividadHome(
-            bpm = datosReloj.bpm,
-            pasos = datosReloj.pasos,
+            bpm = datosActuales.bpm,
+            pasos = pasosFinales,
             tiempoSegundos = finalTimeSeconds,
             aceleracion = finalAcceleration,
             pace = finalPace
@@ -552,17 +661,18 @@ fun HomeScreen(navController: NavController) {
             RunDataStore.finishedPathPoints = pathPoints
         }
 
-        RunDataStore.finalizarEntrenamiento()
+        RunDataStore.finalizarEntrenamiento(instanteMs)
 
         // Al finalizar se retira la notificacion y se libera el servicio.
         EntrenamientoService.detener(context)
+        contadorPasos.detener()
 
         if (settings.guardarUltimaCorrida && settings.prediccionIAActiva) {
             RunDataStore.lastPace = finalPace.toFloat()
             RunDataStore.lastTime = finalTimeSeconds.toFloat()
             RunDataStore.lastDistance = finalDistanceKm.toFloat()
-            RunDataStore.lastBpm = datosReloj.bpm.toFloat()
-            RunDataStore.lastSteps = datosReloj.pasos
+            RunDataStore.lastBpm = datosActuales.bpm.toFloat()
+            RunDataStore.lastSteps = pasosFinales
             RunDataStore.lastCadence = finalCadence.toFloat()
             RunDataStore.lastAcceleration = finalAcceleration
         }
@@ -577,8 +687,8 @@ fun HomeScreen(navController: NavController) {
             finalDistanceKm = finalDistanceKm,
             finalTimeSeconds = finalTimeSeconds,
             finalPace = finalPace,
-            bpmReloj = datosReloj.bpm,
-            pasosReloj = datosReloj.pasos,
+            bpmReloj = datosActuales.bpm,
+            pasosReloj = pasosFinales,
             aceleracionReloj = finalAcceleration,
             estadoDetectado = actividadFinal.estado,
             consejoDetectado = actividadFinal.consejo
@@ -640,26 +750,30 @@ fun HomeScreen(navController: NavController) {
                                 ACCION_INICIAR -> {
                                     iniciarEntrenamientoDesdeTelefono(
                                         enviarAlReloj = false,
-                                        validarPermiso = true
+                                        validarPermiso = true,
+                                        instanteMs = timestamp
                                     )
                                 }
 
                                 ACCION_PAUSAR -> {
                                     pausarEntrenamientoDesdeTelefono(
-                                        enviarAlReloj = false
+                                        enviarAlReloj = false,
+                                        instanteMs = timestamp
                                     )
                                 }
 
                                 ACCION_REANUDAR -> {
                                     reanudarEntrenamientoDesdeTelefono(
                                         enviarAlReloj = false,
-                                        validarPermiso = true
+                                        validarPermiso = true,
+                                        instanteMs = timestamp
                                     )
                                 }
 
                                 ACCION_FINALIZAR -> {
                                     finalizarEntrenamientoDesdeTelefono(
-                                        enviarAlReloj = false
+                                        enviarAlReloj = false,
+                                        instanteMs = timestamp
                                     )
                                 }
                             }
@@ -694,10 +808,26 @@ fun HomeScreen(navController: NavController) {
         }
     }
 
-    LaunchedEffect(isTracking) {
-        while (RunDataStore.isTracking) {
+    // El sensor de pasos se libera al abandonar la pantalla para no dejarlo
+    // registrado consumiendo bateria. Si el entrenamiento sigue activo, la
+    // notificacion del servicio mantiene visible el avance.
+    DisposableEffect(Unit) {
+        onDispose { contadorPasos.detener() }
+    }
+
+    // Pulso que mantiene la pantalla al dia mientras esta a la vista.
+    //
+    // Antes solo latia durante el entrenamiento, y por eso al conectar el reloj
+    // estando en reposo no pasaba nada: la pantalla no volvia a evaluarse y
+    // seguia anunciando que medía con el telefono hasta pulsar iniciar o cambiar
+    // de pestana. Latiendo siempre, el cambio de reloj se refleja solo.
+    //
+    // Medio segundo en lugar de uno para que el cronometro en pantalla no vaya
+    // por detras del tiempo real que se guarda al finalizar.
+    LaunchedEffect(Unit) {
+        while (true) {
             RunDataStore.currentTimeMs = System.currentTimeMillis()
-            delay(1000)
+            delay(500)
         }
     }
 
@@ -724,7 +854,21 @@ fun HomeScreen(navController: NavController) {
         }
     }
 
-    val timeSeconds = RunDataStore.obtenerTiempoActualSegundos()
+    // Leer `currentTimeMs` suscribe la pantalla al pulso de un segundo del
+    // cronometro, y es lo que hace que las cifras avancen solas.
+    //
+    // Antes ese redibujado lo provocaba, sin querer, la llegada de datos del
+    // reloj: al actualizarse cada segundo arrastraba consigo al resto de la
+    // pantalla. Entrenando sin reloj no cambiaba nada observable, asi que el
+    // tiempo, los pasos y la distancia se quedaban congelados hasta cambiar de
+    // pestana, que es cuando la pantalla se reconstruye entera.
+    //
+    // El calculo del tiempo sigue usando el reloj del sistema: si dependiera de
+    // este valor, la notificacion del servicio se congelaria al salir de la
+    // aplicacion, porque quien lo actualiza es esta pantalla.
+    val timeSeconds = remember(RunDataStore.currentTimeMs, RunDataStore.isTracking) {
+        RunDataStore.obtenerTiempoActualSegundos()
+    }
 
     val distanceKmTelefono = RunDataStore.phoneDistanceMeters / 1000.0
     val distanceKmReloj = datosReloj.distancia.toDouble()
@@ -732,7 +876,7 @@ fun HomeScreen(navController: NavController) {
     val distanceKmMostrada = HomeSensorPrecisionUtils.seleccionarDistanciaSegura(
         distanciaTelefonoKm = distanceKmTelefono,
         distanciaRelojKm = distanceKmReloj,
-        pasos = datosReloj.pasos
+        pasos = pasosEfectivos
     )
 
     val distanceMostrada = if (settings.unidadPrincipal == "millas") {
@@ -750,14 +894,14 @@ fun HomeScreen(navController: NavController) {
     val paceMostradoKm = HomeSensorPrecisionUtils.calcularPaceSeguro(
         distanciaKm = distanceKmMostrada,
         tiempoSegundos = timeSeconds,
-        pasos = datosReloj.pasos
+        pasos = pasosEfectivos
     )
 
     val paceMostrado = if (settings.unidadPrincipal == "millas") {
         HomeSensorPrecisionUtils.calcularPaceSeguro(
             distanciaKm = distanceMostrada,
             tiempoSegundos = timeSeconds,
-            pasos = datosReloj.pasos
+            pasos = pasosEfectivos
         )
     } else {
         paceMostradoKm
@@ -780,10 +924,12 @@ fun HomeScreen(navController: NavController) {
         else -> "En espera"
     }
 
-    val sincronizacionTexto = if (datosReloj.timestamp > 0L) {
+    // Sin reloj la aplicacion funciona igual con los sensores del telefono, asi
+    // que el aviso lo dice en esos terminos y no como si faltara algo.
+    val sincronizacionTexto = if (relojEnviando) {
         "Reloj sincronizado correctamente"
     } else {
-        "Esperando sincronización del reloj"
+        "Midiendo con los sensores del teléfono"
     }
 
     LaunchedEffect(
@@ -792,7 +938,7 @@ fun HomeScreen(navController: NavController) {
         distanceKmMostrada,
         isTracking,
         datosReloj.bpm,
-        datosReloj.pasos,
+        pasosEfectivos,
         aceleracionSegura
     ) {
         RunDataStore.currentPace = paceMostradoKm.toFloat()
@@ -905,33 +1051,58 @@ fun HomeScreen(navController: NavController) {
 
                             StatItem(
                                 title = "Tiempo",
-                                value = "${timeSeconds}s",
+                                value = formatearTiempo(timeSeconds),
                                 uiColors = uiColors
                             )
                         }
 
+                        // El pulso y la aceleracion solo existen si hay reloj, asi
+                        // que sin el se omiten en vez de mostrar "--" y "0.00".
+                        // Al quedar un solo dato se centra, para que no se vea
+                        // desplazado hacia un lado.
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = dimens.horizontalPadding),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = if (relojEnviando) {
+                                Arrangement.SpaceBetween
+                            } else {
+                                Arrangement.Center
+                            }
                         ) {
-                            StatItem(
-                                title = "BPM",
-                                value = bpmTexto,
-                                uiColors = uiColors
-                            )
+                            if (relojEnviando) {
+                                StatItem(
+                                    title = "BPM",
+                                    value = bpmTexto,
+                                    uiColors = uiColors
+                                )
+                            }
 
                             StatItem(
                                 title = "Pasos",
-                                value = datosReloj.pasos.toString(),
+                                value = pasosEfectivos.toString(),
                                 uiColors = uiColors
                             )
 
-                            StatItem(
-                                title = "Acel.",
-                                value = aceleracionTexto,
-                                uiColors = uiColors
+                            if (relojEnviando) {
+                                StatItem(
+                                    title = "Acel.",
+                                    value = aceleracionTexto,
+                                    uiColors = uiColors
+                                )
+                            }
+                        }
+
+                        // Antes de empezar se muestra que esta listo y que no,
+                        // para no descubrir a media carrera que faltaba algo.
+                        if (estadoEntrenamiento == "EN_ESPERA") {
+                            PreparacionEntrenamiento(
+                                ubicacionLista = tienePermisoUbicacion(),
+                                pasosListos = contadorPasos.disponible || relojEnviando,
+                                relojListo = relojEnviando,
+                                soloTelefono = settings.soloTelefono,
+                                uiColors = uiColors,
+                                dimens = dimens
                             )
                         }
 
@@ -1042,13 +1213,14 @@ fun HomeScreen(navController: NavController) {
                     ritmo = paceMostrado,
                     ritmoTexto = ritmoTexto,
                     bpmTexto = bpmTexto,
-                    pasos = datosReloj.pasos,
+                    pasos = pasosEfectivos,
                     aceleracionTexto = aceleracionTexto,
                     sincronizacionTexto = sincronizacionTexto,
                     ultimaActividadTexto = ultimaActividadTexto,
                     mostrarIA = settings.prediccionIAActiva,
                     cadenciaReciente = cadenciaReciente,
                     pasosRecientes = pasosRecientes,
+                    relojEnviando = relojEnviando,
                     uiColors = uiColors
                 )
 
@@ -1179,6 +1351,7 @@ fun ResumenEntrenamientoSection(
     mostrarIA: Boolean,
     cadenciaReciente: Double? = null,
     pasosRecientes: Int? = null,
+    relojEnviando: Boolean = true,
     uiColors: AppUiColors
 ) {
     val dimens = rememberResponsiveDimens()
@@ -1257,16 +1430,20 @@ fun ResumenEntrenamientoSection(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            // Sin reloj no hay pulso ni aceleracion que mostrar; los pasos siguen
+            // llegando desde el telefono y ocupan la fila completa.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                MiniStatCard(
-                    modifier = Modifier.weight(1f),
-                    label = "BPM",
-                    value = bpmTexto,
-                    uiColors = uiColors
-                )
+                if (relojEnviando) {
+                    MiniStatCard(
+                        modifier = Modifier.weight(1f),
+                        label = "BPM",
+                        value = bpmTexto,
+                        uiColors = uiColors
+                    )
+                }
 
                 MiniStatCard(
                     modifier = Modifier.weight(1f),
@@ -1275,12 +1452,14 @@ fun ResumenEntrenamientoSection(
                     uiColors = uiColors
                 )
 
-                MiniStatCard(
-                    modifier = Modifier.weight(1f),
-                    label = "Acel.",
-                    value = aceleracionTexto,
-                    uiColors = uiColors
-                )
+                if (relojEnviando) {
+                    MiniStatCard(
+                        modifier = Modifier.weight(1f),
+                        label = "Acel.",
+                        value = aceleracionTexto,
+                        uiColors = uiColors
+                    )
+                }
             }
         }
 
@@ -1288,10 +1467,10 @@ fun ResumenEntrenamientoSection(
 
         ModernCard(
             title = if (mostrarIA) "Actividad detectada" else "IA desactivada",
-            subtitle = if (mostrarIA) {
-                "Clasificación en tiempo real usando BPM, pasos, cadencia y aceleración"
-            } else {
-                "Activa la predicción automática en Configuración"
+            subtitle = when {
+                !mostrarIA -> "Activa la predicción automática en Configuración"
+                relojEnviando -> "Clasificación en tiempo real usando BPM, pasos, cadencia y aceleración"
+                else -> "Clasificación en tiempo real usando pasos y cadencia del teléfono"
             },
             uiColors = uiColors
         ) {
@@ -1325,7 +1504,13 @@ fun ResumenEntrenamientoSection(
 
             InfoRow(
                 label = "Base del análisis",
-                value = "BPM: $bpmTexto | Pasos: $pasos | Tiempo: ${tiempoSegundos}s | Aceleración: $aceleracionTexto | Ritmo: $ritmoTexto",
+                value = buildList {
+                    if (relojEnviando) add("BPM: $bpmTexto")
+                    add("Pasos: $pasos")
+                    add("Tiempo: ${formatearTiempo(tiempoSegundos)}")
+                    if (relojEnviando) add("Aceleración: $aceleracionTexto")
+                    add("Ritmo: $ritmoTexto")
+                }.joinToString(" | "),
                 uiColors = uiColors
             )
 
@@ -1551,12 +1736,136 @@ fun bottomItemColors(
     unselectedTextColor = uiColors.bottomUnselected
 )
 
+/**
+ * Convierte segundos a `m:ss`, o a `h:mm:ss` cuando pasa de una hora.
+ * Los minutos van sin cero delante para que se lea como un cronometro: 4:23.
+ */
 fun formatearTiempo(segundos: Long): String {
-    val min = segundos / 60
-    val sec = segundos % 60
-    return String.format(Locale.US, "%02d:%02d", min, sec)
+    val totales = segundos.coerceAtLeast(0L)
+
+    val horas = totales / 3600
+    val minutos = (totales % 3600) / 60
+    val restantes = totales % 60
+
+    return if (horas > 0) {
+        String.format(Locale.US, "%d:%02d:%02d", horas, minutos, restantes)
+    } else {
+        String.format(Locale.US, "%d:%02d", minutos, restantes)
+    }
 }
 
+
+/**
+ * Repaso de lo que esta listo antes de iniciar.
+ *
+ * Evita el caso incomodo de terminar un recorrido y descubrir entonces que
+ * faltaba un permiso o que el reloj no estaba enviando.
+ */
+@Composable
+fun PreparacionEntrenamiento(
+    ubicacionLista: Boolean,
+    pasosListos: Boolean,
+    relojListo: Boolean,
+    soloTelefono: Boolean,
+    uiColors: AppUiColors,
+    dimens: ResponsiveDimens
+) {
+    // Con el modo de solo telefono activo, el reloj no cuenta como pendiente.
+    val todoListo = ubicacionLista && pasosListos && (relojListo || soloTelefono)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = dimens.horizontalPadding)
+            .padding(top = 4.dp)
+    ) {
+        Text(
+            text = if (todoListo) "Todo listo para entrenar" else "Antes de empezar",
+            fontSize = dimens.bodyFontSize,
+            fontWeight = FontWeight.Bold,
+            color = if (todoListo) uiColors.primaryButton else uiColors.textPrimary
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        FilaPreparacion(
+            listo = ubicacionLista,
+            titulo = "Ubicación y GPS",
+            detalle = if (ubicacionLista) "Permiso concedido" else "Falta conceder el permiso",
+            uiColors = uiColors,
+            dimens = dimens
+        )
+
+        FilaPreparacion(
+            listo = pasosListos,
+            titulo = "Contador de pasos",
+            detalle = when {
+                relojListo -> "Desde el reloj"
+                pasosListos -> "Desde el teléfono"
+                else -> "Sin sensor disponible"
+            },
+            uiColors = uiColors,
+            dimens = dimens
+        )
+
+        if (!soloTelefono) {
+            FilaPreparacion(
+                listo = relojListo,
+                titulo = "Reloj",
+                detalle = if (relojListo) {
+                    "Enviando pulso y aceleración"
+                } else {
+                    "Abre ALYRA en el reloj, o activa Solo teléfono"
+                },
+                uiColors = uiColors,
+                dimens = dimens
+            )
+        }
+    }
+}
+
+@Composable
+private fun FilaPreparacion(
+    listo: Boolean,
+    titulo: String,
+    detalle: String,
+    uiColors: AppUiColors,
+    dimens: ResponsiveDimens
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(9.dp)
+                .background(
+                    if (listo) uiColors.primaryButton else uiColors.warning,
+                    androidx.compose.foundation.shape.CircleShape
+                )
+        )
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        Text(
+            text = titulo,
+            fontSize = dimens.labelFontSize,
+            fontWeight = FontWeight.Medium,
+            color = uiColors.textPrimary
+        )
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Text(
+            text = detalle,
+            fontSize = dimens.labelFontSize,
+            color = uiColors.textMuted,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
 
 @Composable
 fun StatItem(

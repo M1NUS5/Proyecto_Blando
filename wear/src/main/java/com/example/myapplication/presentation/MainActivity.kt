@@ -84,6 +84,30 @@ const val ACCION_FINALIZAR = "FINALIZAR"
 const val ORIGEN_TELEFONO = "TELEFONO"
 const val ORIGEN_RELOJ = "RELOJ"
 
+/** Desfase maximo aceptado entre la marca del telefono y el reloj propio. */
+private const val MAXIMO_DESFASE_ACEPTADO_MS = 10_000L
+
+/**
+ * Instante que se toma como referencia para contar el tiempo.
+ *
+ * Las ordenes que llegan del telefono traen el momento en que se pulsaron alli,
+ * no el momento en que el reloj las recibe. Usar esa marca hace que ambos
+ * midan desde el mismo punto de partida en lugar de separarse por lo que tardo
+ * el mensaje, una diferencia que en cada pausa se sumaba a la anterior.
+ *
+ * Solo se acepta si concuerda con el reloj propio: si las horas de los dos
+ * equipos difirieran mucho, fiarse de la ajena daria un tiempo absurdo.
+ */
+private fun instanteValidoWear(propuesto: Long): Long {
+    val ahora = System.currentTimeMillis()
+
+    if (propuesto <= 0L) return ahora
+    if (propuesto > ahora) return ahora
+    if (ahora - propuesto > MAXIMO_DESFASE_ACEPTADO_MS) return ahora
+
+    return propuesto
+}
+
 class MainActivity : ComponentActivity() {
 
     private val permisosLauncher =
@@ -172,6 +196,9 @@ fun PantallaReloj() {
     /** Acumula la distancia priorizando la velocidad que informa el receptor. */
     val medidorDistancia = remember { MedidorDistancia() }
 
+    /** Mismos ultimos segundos que observa el telefono, para coincidir con el. */
+    val ventanaActividad = remember { VentanaActividad() }
+
     var estadoIA by remember { mutableStateOf("En espera") }
     var consejoIA by remember { mutableStateOf("Presiona iniciar entrenamiento") }
 
@@ -191,23 +218,13 @@ fun PantallaReloj() {
     }
 
     /**
-     * Procesa una lectura del sensor cardiaco aplicando dos filtros.
+     * Procesa una lectura del sensor cardiaco con dos filtros, porque el sensor
+     * optico entrega valores sueltos erroneos al moverse el brazo:
      *
-     * El sensor optico de muneca entrega lecturas sueltas erroneas cuando el
-     * brazo se mueve o el contacto con la piel varia. Sin filtrar, esos valores
-     * se muestran tal cual y contaminan tanto el promedio como el maximo de la
-     * sesion.
-     *
-     * 1. **Limite de variacion.** El pulso humano no cambia mas de unos pocos
-     *    latidos por segundo. Una lectura que se aleja demasiado de la anterior
-     *    en muy poco tiempo es un artefacto y se descarta. Para no quedar
-     *    atrapado en un valor equivocado, tras varios rechazos seguidos se
-     *    acepta la lectura y se resincroniza.
-     *
-     * 2. **Mediana movil.** El valor mostrado es la mediana de las ultimas
-     *    lecturas y no la mas reciente. La mediana ignora por completo un dato
-     *    aislado fuera de rango, a diferencia del promedio, que se desplaza con
-     *    el.
+     * 1. Limite de variacion: descarta saltos imposibles para un pulso humano,
+     *    y se resincroniza tras varios rechazos seguidos.
+     * 2. Mediana movil: muestra la mediana de las ultimas lecturas, que ignora
+     *    un dato aislado fuera de rango.
      */
     fun registrarBpm(nuevoBpm: Int) {
         if (nuevoBpm !in 35..220) return
@@ -309,10 +326,10 @@ fun PantallaReloj() {
         )
     }
 
-    fun reiniciarDatosEntrenamiento() {
+    fun reiniciarDatosEntrenamiento(instanteMs: Long = 0L) {
         segundos = 0
         tiempoAcumuladoMs = 0L
-        inicioSegmentoMs = System.currentTimeMillis()
+        inicioSegmentoMs = instanteValidoWear(instanteMs)
 
         bpm = 0
         bpmSuma = 0
@@ -342,7 +359,7 @@ fun PantallaReloj() {
         mensajePasos = "Esperando pasos reales"
     }
 
-    fun iniciarEntrenamiento(enviarAlTelefono: Boolean) {
+    fun iniciarEntrenamiento(enviarAlTelefono: Boolean, instanteMs: Long = 0L) {
         if (estadoEntrenamiento == "CORRIENDO") return
 
         if (enviarAlTelefono) {
@@ -357,7 +374,7 @@ fun PantallaReloj() {
         EntrenamientoWearService.iniciar(context)
 
         estadoEntrenamiento = "CORRIENDO"
-        reiniciarDatosEntrenamiento()
+        reiniciarDatosEntrenamiento(instanteMs)
 
         estadoIA = "Preparando sensores"
         consejoIA = "Espera unos segundos para estabilizar datos"
@@ -382,7 +399,7 @@ fun PantallaReloj() {
         enviarEstadoActual()
     }
 
-    fun pausarEntrenamiento(enviarAlTelefono: Boolean) {
+    fun pausarEntrenamiento(enviarAlTelefono: Boolean, instanteMs: Long = 0L) {
         if (estadoEntrenamiento != "CORRIENDO") return
 
         if (enviarAlTelefono) {
@@ -394,7 +411,7 @@ fun PantallaReloj() {
         }
 
         if (inicioSegmentoMs > 0L) {
-            val ahora = System.currentTimeMillis()
+            val ahora = instanteValidoWear(instanteMs)
             tiempoAcumuladoMs += ahora - inicioSegmentoMs
             segundos = (tiempoAcumuladoMs / 1000).toInt()
         }
@@ -416,7 +433,7 @@ fun PantallaReloj() {
         enviarEstadoActual()
     }
 
-    fun reanudarEntrenamiento(enviarAlTelefono: Boolean) {
+    fun reanudarEntrenamiento(enviarAlTelefono: Boolean, instanteMs: Long = 0L) {
         if (estadoEntrenamiento != "PAUSADO") return
 
         // Si el servicio se hubiera detenido, se levanta de nuevo al reanudar.
@@ -431,7 +448,7 @@ fun PantallaReloj() {
         }
 
         estadoEntrenamiento = "CORRIENDO"
-        inicioSegmentoMs = System.currentTimeMillis()
+        inicioSegmentoMs = instanteValidoWear(instanteMs)
 
         pasosBase = -1
         ultimaUbicacion = null
@@ -447,7 +464,7 @@ fun PantallaReloj() {
         enviarEstadoActual()
     }
 
-    fun finalizarEntrenamiento(enviarAlTelefono: Boolean) {
+    fun finalizarEntrenamiento(enviarAlTelefono: Boolean, instanteMs: Long = 0L) {
         if (estadoEntrenamiento == "EN_ESPERA" || estadoEntrenamiento == "FINALIZADO") return
 
         if (enviarAlTelefono) {
@@ -462,7 +479,7 @@ fun PantallaReloj() {
         EntrenamientoWearService.detener(context)
 
         if (estadoEntrenamiento == "CORRIENDO" && inicioSegmentoMs > 0L) {
-            val ahora = System.currentTimeMillis()
+            val ahora = instanteValidoWear(instanteMs)
             tiempoAcumuladoMs += ahora - inicioSegmentoMs
         }
 
@@ -486,17 +503,29 @@ fun PantallaReloj() {
     }
 
     LaunchedEffect(estadoEntrenamiento) {
+        if (estadoEntrenamiento != "CORRIENDO") {
+            ventanaActividad.reiniciar()
+            return@LaunchedEffect
+        }
+
         while (estadoEntrenamiento == "CORRIENDO") {
             val ahora = System.currentTimeMillis()
 
             segundos = ((tiempoAcumuladoMs + (ahora - inicioSegmentoMs)) / 1000).toInt()
+
+            // Se muestrea por reloj propio y no al cambiar los pasos: estar
+            // quieto no genera cambios, y es justo lo que hay que detectar.
+            ventanaActividad.registrar(pasos, ahora)
 
             estadoIA = evaluarRitmo(
                 bpmPromedio = bpmPromedioActual(),
                 bpmActual = bpm,
                 aceleracionPromedio = aceleracionPromedio,
                 pasos = pasos,
-                segundos = segundos
+                segundos = segundos,
+                cadenciaReciente = ventanaActividad.cadenciaReciente()?.toFloat(),
+                pasosRecientes = ventanaActividad.pasosRecientes(),
+                pace = calcularPaceActual()
             )
 
             consejoIA = generarConsejo(estadoIA)
@@ -525,10 +554,10 @@ fun PantallaReloj() {
 
                             mainHandler.post {
                                 when (accion) {
-                                    ACCION_INICIAR -> iniciarEntrenamiento(enviarAlTelefono = false)
-                                    ACCION_PAUSAR -> pausarEntrenamiento(enviarAlTelefono = false)
-                                    ACCION_REANUDAR -> reanudarEntrenamiento(enviarAlTelefono = false)
-                                    ACCION_FINALIZAR -> finalizarEntrenamiento(enviarAlTelefono = false)
+                                    ACCION_INICIAR -> iniciarEntrenamiento(enviarAlTelefono = false, instanteMs = timestamp)
+                                    ACCION_PAUSAR -> pausarEntrenamiento(enviarAlTelefono = false, instanteMs = timestamp)
+                                    ACCION_REANUDAR -> reanudarEntrenamiento(enviarAlTelefono = false, instanteMs = timestamp)
+                                    ACCION_FINALIZAR -> finalizarEntrenamiento(enviarAlTelefono = false, instanteMs = timestamp)
                                 }
                             }
                         }
@@ -640,17 +669,10 @@ fun PantallaReloj() {
                 override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
             }
 
-            // Se registran los dos sensores de pasos a la vez y no uno u otro:
-            //
-            //  - El detector responde paso a paso, para que la cuenta avance en
-            //    el momento en que el usuario camina.
-            //  - El contador acumulado llega despues y corrige el total, porque
-            //    es mas preciso a lo largo del entrenamiento.
-            //
-            // El ultimo parametro es la latencia maxima de reporte en
-            // microsegundos: en cero se pide al sistema que no agrupe lecturas.
-            // Sin el, el reloj puede guardar los pasos durante decenas de
-            // segundos antes de entregarlos, y la pantalla parece congelada.
+            // Los dos sensores de pasos a la vez: el detector responde al
+            // instante y el contador acumulado corrige el total despues.
+            // La latencia en cero evita que el reloj agrupe lecturas y la
+            // pantalla parezca congelada.
             sensorStepCounter?.let {
                 sensorManager.registerListener(
                     sensorListener,
@@ -700,16 +722,11 @@ fun PantallaReloj() {
                     return@LocationListener
                 }
 
-                val precision = if (nuevaUbicacion.hasAccuracy()) nuevaUbicacion.accuracy else 99f
-
-                if (precision > 18f) {
-                    mensajeGps = "GPS con baja precisión"
-                    return@LocationListener
-                }
-
-                // El medidor prioriza la velocidad que informa el receptor sobre
-                // la diferencia de posiciones, porque esa velocidad proviene del
-                // efecto Doppler y no arrastra el error acumulado del ruido.
+                // La lectura pasa siempre al medidor, aunque la precision sea
+                // mala: integra la velocidad Doppler, que no depende de que el
+                // receptor logre ubicarse, y ya descarta por su cuenta lo que no
+                // sirve. Cortar aqui dejaba la distancia en cero pese a llevar
+                // cientos de pasos contados.
                 val metros = medidorDistancia.procesar(nuevaUbicacion, pasos)
 
                 distancia = (medidorDistancia.metrosAcumulados / 1000.0).toFloat()
@@ -1398,32 +1415,70 @@ fun zonaCardiaca(bpmPromedio: Int): String {
     }
 }
 
+/**
+ * Clasifica la actividad con los mismos criterios que el telefono.
+ *
+ * Antes cada dispositivo decidia por su cuenta y llegaban a conclusiones
+ * distintas ante el mismo esfuerzo: el reloj promediaba la cadencia y el pulso
+ * sobre toda la sesion, asi que despues de caminar un rato seguia diciendo
+ * "Caminando" aunque la persona ya estuviera trotando, mientras el telefono
+ * -que mira los ultimos segundos- ya lo habia detectado.
+ *
+ * Ahora ambos usan la cadencia reciente, el pulso actual y los mismos umbrales,
+ * de modo que las dos pantallas coinciden. Cualquier cambio aqui debe hacerse
+ * tambien en `detectarActividadHome` del telefono.
+ *
+ * [cadenciaReciente] vale null mientras no haya suficiente historia; en ese caso
+ * se recurre a la acumulada.
+ */
 fun evaluarRitmo(
     bpmPromedio: Int,
     bpmActual: Int,
     aceleracionPromedio: Float,
     pasos: Int,
-    segundos: Int
+    segundos: Int,
+    cadenciaReciente: Float? = null,
+    pasosRecientes: Int? = null,
+    pace: Float = 0f
 ): String {
-    val cadencia = PrecisionWearUtils.calcularCadencia(
+    val cadenciaAcumulada = PrecisionWearUtils.calcularCadencia(
         pasos = pasos,
         segundos = segundos
     )
 
-    return when {
-        bpmPromedio == 0 && bpmActual == 0 -> "Analizando ritmo"
-        segundos < 10 -> "Preparando sensores"
+    val cadencia = cadenciaReciente ?: cadenciaAcumulada
 
-        pasos == 0 && aceleracionPromedio < 0.45f -> "Reposo"
+    // Se prefiere el pulso actual sobre el promedio: el promedio arrastra todo
+    // lo anterior y tarda en reflejar que el esfuerzo cambio.
+    val pulso = if (bpmActual > 0) bpmActual else bpmPromedio
 
-        cadencia in 1f..85f && bpmPromedio < 125 -> "Caminando"
+    if (bpmPromedio == 0 && bpmActual == 0) return "Analizando ritmo"
+    if (segundos < 8) return "Preparando sensores"
 
-        cadencia in 86f..135f || bpmPromedio in 125..150 -> "Trotando"
-
-        cadencia > 135f || bpmPromedio > 150 -> "Corriendo"
-
-        else -> "Analizando ritmo"
+    val sinMovimientoReciente = when (pasosRecientes) {
+        null -> pasos == 0
+        else -> pasosRecientes == 0
     }
+
+    if (sinMovimientoReciente) return "Reposo"
+
+    if (cadenciaReciente != null && cadenciaReciente < 15f) return "Casi detenido"
+
+    if (cadencia > 135f || pulso > 150 ||
+        (pace > 0f && pace <= 6.5f && pulso >= 135)
+    ) {
+        return "Corriendo"
+    }
+
+    if (cadencia in 86f..135f || pulso in 125..150 ||
+        (pace > 6.5f && pace <= 10f && pulso >= 115)
+    ) {
+        return "Trotando"
+    }
+
+    if (cadencia in 1f..85f) return "Caminando"
+
+    return "Analizando ritmo"
 }
 
 fun generarConsejo(estado: String): String {
@@ -1511,21 +1566,14 @@ fun enviarComandoEntrenamiento(
 }
 
 /**
- * Variacion maxima creible del pulso, en latidos por segundo.
- *
- * El corazon humano tarda segundos en cambiar de ritmo: incluso en un arranque
- * brusco sube del orden de 5 latidos por segundo. Un salto mayor entre dos
- * lecturas consecutivas corresponde casi siempre a un artefacto del sensor
- * optico y no a un cambio real del usuario.
+ * Variacion maxima creible del pulso, en latidos por segundo. Un salto mayor
+ * entre dos lecturas es casi siempre un artefacto del sensor optico.
  */
 private const val MAXIMO_CAMBIO_BPM_POR_SEGUNDO = 8.0
 
 /**
- * Numero de lecturas sobre el que se calcula la mediana.
- *
- * Se mantiene corto a proposito: el descarte por calidad que hace Health
- * Services ya elimina las lecturas malas en origen, de modo que una ventana
- * amplia solo agregaria retraso frente al pulso real.
+ * Lecturas sobre las que se calcula la mediana. Se mantiene corto: Health
+ * Services ya descarta las malas y una ventana amplia solo agregaria retraso.
  */
 private const val VENTANA_MEDIANA_BPM = 3
 

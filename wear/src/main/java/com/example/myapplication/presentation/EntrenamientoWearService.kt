@@ -18,23 +18,10 @@ import com.example.myapplication.R
 /**
  * Servicio en primer plano del reloj.
  *
- * En Wear OS el sistema suspende la aplicacion en cuanto la pantalla se apaga
- * para ahorrar bateria. Los sensores que la pantalla registra directamente
- * -contador de pasos, acelerometro y GPS- dejan de entregar lecturas en ese
- * momento, de modo que un entrenamiento con la muneca abajo quedaria sin pasos
- * ni distancia.
- *
- * La frecuencia cardiaca no se ve afectada porque se obtiene por Health
- * Services, que ya administra su propia medicion en segundo plano.
- *
- * Este servicio resuelve el resto con dos mecanismos:
- *
- * 1. Un servicio en primer plano, que conserva la prioridad de la aplicacion.
- * 2. Un `PARTIAL_WAKE_LOCK`, que mantiene el procesador activo aunque la
- *    pantalla se apague, para que los sensores sigan reportando.
- *
- * El bloqueo se libera siempre al detener el servicio, para no dejar el reloj
- * consumiendo bateria despues de terminar.
+ * Wear OS suspende la aplicacion al apagarse la pantalla y los sensores dejan de
+ * reportar, asi que un entrenamiento con la muneca abajo se quedaria sin pasos
+ * ni distancia. Se resuelve con el servicio en primer plano mas un
+ * `PARTIAL_WAKE_LOCK`, que se libera siempre al detenerlo.
  */
 class EntrenamientoWearService : Service() {
 

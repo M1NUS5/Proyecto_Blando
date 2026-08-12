@@ -6,6 +6,12 @@ import androidx.compose.runtime.setValue
 
 import com.google.android.gms.maps.model.LatLng
 
+/**
+ * Diferencia maxima que se acepta entre la marca de tiempo recibida del reloj y
+ * el reloj del propio telefono. Mas alla, se asume que las horas no coinciden.
+ */
+private const val MAXIMO_DESFASE_ACEPTADO_MS = 10_000L
+
 object RunDataStore {
 
     var currentPace by mutableStateOf(0f)
@@ -33,11 +39,34 @@ object RunDataStore {
 
     var phoneDistanceMeters by mutableStateOf(0.0)
 
-    fun iniciarNuevoEntrenamiento() {
+    /**
+     * Instante que se toma como referencia para contar el tiempo.
+     *
+     * Cuando la orden viene del reloj llega con la marca de tiempo del momento
+     * en que se pulso alli, no del momento en que el telefono la recibe. Usar esa
+     * marca hace que ambos dispositivos midan desde el mismo punto de partida en
+     * lugar de separarse por lo que tardo el mensaje en cruzar el Bluetooth, una
+     * diferencia que en cada pausa y reanudacion se iba sumando a la anterior.
+     *
+     * Se acepta solo si es coherente con el reloj propio: si los dos equipos
+     * tuvieran la hora muy distinta, fiarse de la ajena daria un tiempo absurdo,
+     * asi que en ese caso se prefiere el momento actual.
+     */
+    private fun instanteValido(propuesto: Long): Long {
+        val ahora = System.currentTimeMillis()
+
+        if (propuesto <= 0L) return ahora
+        if (propuesto > ahora) return ahora
+        if (ahora - propuesto > MAXIMO_DESFASE_ACEPTADO_MS) return ahora
+
+        return propuesto
+    }
+
+    fun iniciarNuevoEntrenamiento(instanteMs: Long = 0L) {
         estadoEntrenamiento = "CORRIENDO"
         isTracking = true
 
-        val ahora = System.currentTimeMillis()
+        val ahora = instanteValido(instanteMs)
         startTimeMs = ahora
         currentTimeMs = ahora
         accumulatedTimeMs = 0L
@@ -52,10 +81,10 @@ object RunDataStore {
         hasFinishedRun = false
     }
 
-    fun pausarEntrenamiento() {
+    fun pausarEntrenamiento(instanteMs: Long = 0L) {
         if (estadoEntrenamiento != "CORRIENDO") return
 
-        val ahora = System.currentTimeMillis()
+        val ahora = instanteValido(instanteMs)
 
         if (startTimeMs > 0L) {
             accumulatedTimeMs += ahora - startTimeMs
@@ -68,10 +97,10 @@ object RunDataStore {
         isTracking = false
     }
 
-    fun reanudarEntrenamiento() {
+    fun reanudarEntrenamiento(instanteMs: Long = 0L) {
         if (estadoEntrenamiento != "PAUSADO") return
 
-        val ahora = System.currentTimeMillis()
+        val ahora = instanteValido(instanteMs)
 
         startTimeMs = ahora
         currentTimeMs = ahora
@@ -80,10 +109,10 @@ object RunDataStore {
         isTracking = true
     }
 
-    fun finalizarEntrenamiento() {
+    fun finalizarEntrenamiento(instanteMs: Long = 0L) {
         if (estadoEntrenamiento == "EN_ESPERA" || estadoEntrenamiento == "FINALIZADO") return
 
-        val ahora = System.currentTimeMillis()
+        val ahora = instanteValido(instanteMs)
 
         if (estadoEntrenamiento == "CORRIENDO" && startTimeMs > 0L) {
             accumulatedTimeMs += ahora - startTimeMs

@@ -173,6 +173,20 @@ fun SettingsScreen(
                 DivisorSuave(uiColors)
 
                 AjusteInterruptor(
+                    titulo = "Usar solo el teléfono",
+                    descripcion = if (settings.soloTelefono) {
+                        "Se miden GPS, distancia, ritmo y pasos. Sin pulso ni aceleración."
+                    } else {
+                        "Actívalo si entrenas sin reloj, para no ver datos vacíos."
+                    },
+                    activo = settings.soloTelefono,
+                    uiColors = uiColors,
+                    onCambio = { actualizarConfiguracion(settings.copy(soloTelefono = it)) }
+                )
+
+                DivisorSuave(uiColors)
+
+                AjusteInterruptor(
                     titulo = "Alertas de ritmo",
                     descripcion = "Avisa cuando tu ritmo suba o baje demasiado.",
                     activo = settings.alertasRitmo,

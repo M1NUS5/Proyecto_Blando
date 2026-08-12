@@ -225,16 +225,4 @@ class EntrenamientoService : Service() {
         ).joinToString("  ·  ")
     }
 
-    /** Convierte segundos a `mm:ss`, o a `h:mm:ss` cuando pasa de una hora. */
-    private fun formatearTiempo(totalSegundos: Long): String {
-        val horas = totalSegundos / 3600
-        val minutos = (totalSegundos % 3600) / 60
-        val segundos = totalSegundos % 60
-
-        return if (horas > 0) {
-            String.format(Locale.US, "%d:%02d:%02d", horas, minutos, segundos)
-        } else {
-            String.format(Locale.US, "%02d:%02d", minutos, segundos)
-        }
-    }
 }
